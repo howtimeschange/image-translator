@@ -132,26 +132,29 @@ async function handleTranslate(message: {
   visionApiKey: string
   banana2ApiKey: string
   bananaProApiKey: string
+  preserveBrand: boolean
   jobId: string
 }) {
-  const { imageUrl, imageBase64, sourceLanguage, targetLanguage, model, visionApiKey, banana2ApiKey, bananaProApiKey, jobId } = message
+  const {
+    imageUrl, imageBase64,
+    sourceLanguage, targetLanguage, model,
+    visionApiKey, banana2ApiKey, bananaProApiKey,
+    preserveBrand, jobId,
+  } = message
 
   let base64 = imageBase64
   if (!base64) {
-    try {
-      base64 = await fetchImageBase64(imageUrl)
-    } catch (e) {
-      throw new Error(`无法获取图片数据: ${e}`)
-    }
+    try { base64 = await fetchImageBase64(imageUrl) }
+    catch (e) { throw new Error(`无法获取图片数据: ${e}`) }
   }
   if (!base64) throw new Error('图片数据为空')
 
-  const { resultDataUrl, ocrTexts } = await translateImage(base64, sourceLanguage, targetLanguage, model, {
-    visionApiKey,
-    banana2ApiKey,
-    bananaProApiKey,
-  })
-  return { jobId, resultDataUrl, ocrTexts }
+  const result = await translateImage(
+    base64, sourceLanguage, targetLanguage, model,
+    { visionApiKey, banana2ApiKey, bananaProApiKey },
+    preserveBrand,
+  )
+  return { jobId, ...result }
 }
 
 // ── 6. Keep service worker alive (MV3 workaround) ────────────────────────────

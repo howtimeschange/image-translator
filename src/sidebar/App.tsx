@@ -105,6 +105,7 @@ export function App() {
       targetLanguage,
       model: selectedModel,
       status: 'translating',
+      preserveBrand: settings.preserveBrand,
       createdAt: Date.now(),
     }
     addJob(job)
@@ -120,13 +121,16 @@ export function App() {
         visionApiKey: settings.visionApiKey,
         banana2ApiKey: settings.banana2ApiKey,
         bananaProApiKey: settings.bananaProApiKey,
+        preserveBrand: settings.preserveBrand,
         jobId,
       })
       if (resp?.error) throw new Error(resp.error)
       const resultDataUrl = resp?.resultDataUrl
       const ocrTexts = resp?.ocrTexts ?? []
+      const keepCount = resp?.keepCount ?? 0
+      const translateCount = resp?.translateCount ?? 0
       setSingleResult(resultDataUrl)
-      updateJob(jobId, { status: 'done', resultDataUrl, ocrTexts })
+      updateJob(jobId, { status: 'done', resultDataUrl, ocrTexts, keepCount, translateCount })
     } catch (e: any) {
       const errMsg = e?.message ?? '翻译失败，请重试'
       setSingleError(errMsg)
@@ -156,6 +160,7 @@ export function App() {
         targetLanguage,
         model: selectedModel,
         status: 'translating',
+        preserveBrand: settings.preserveBrand,
         createdAt: Date.now(),
       }
       addJob(job)
@@ -170,10 +175,17 @@ export function App() {
         visionApiKey: settings.visionApiKey,
         banana2ApiKey: settings.banana2ApiKey,
         bananaProApiKey: settings.bananaProApiKey,
+        preserveBrand: settings.preserveBrand,
         jobId,
       }).then((resp: any) => {
         if (resp?.error) updateJob(jobId, { status: 'error', error: resp.error })
-        else updateJob(jobId, { status: 'done', resultDataUrl: resp?.resultDataUrl, ocrTexts: resp?.ocrTexts ?? [] })
+        else updateJob(jobId, {
+          status: 'done',
+          resultDataUrl: resp?.resultDataUrl,
+          ocrTexts: resp?.ocrTexts ?? [],
+          keepCount: resp?.keepCount ?? 0,
+          translateCount: resp?.translateCount ?? 0,
+        })
       }).catch((e: any) => {
         updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
       })
@@ -319,8 +331,6 @@ export function App() {
                   isTranslating={isTranslatingSingle}
                   disabled={noApiKey}
                 />
-
-                {/* Result */}
                 {singleResult && (
                   <div className="fade-up">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>

@@ -76,7 +76,78 @@ export function SettingsPanel() {
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* API Keys */}
+      {/* ── 品牌保护总开关（最重要，放最上面）── */}
+      <div style={{
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 10,
+        overflow: 'hidden',
+      }}>
+        <button
+          onClick={() => setSettings({ preserveBrand: !settings.preserveBrand })}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 14px',
+            background: settings.preserveBrand ? 'rgba(255,255,255,0.04)' : 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+        >
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginBottom: 3 }}>
+              保留品牌与商标文本
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
+              Logo、品牌名、SKU、产品型号保持原文，<br />只翻译功能说明与促销文案
+            </div>
+          </div>
+          {/* Toggle switch */}
+          <div style={{
+            width: 36, height: 20,
+            borderRadius: 10,
+            background: settings.preserveBrand ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            position: 'relative',
+            flexShrink: 0,
+            marginLeft: 12,
+            transition: 'background 0.2s',
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 2, left: settings.preserveBrand ? 18 : 2,
+              width: 14, height: 14,
+              borderRadius: '50%',
+              background: settings.preserveBrand ? '#0c0c0e' : 'rgba(255,255,255,0.35)',
+              transition: 'left 0.2s',
+            }} />
+          </div>
+        </button>
+
+        {/* 保留规则说明 */}
+        {settings.preserveBrand && (
+          <div style={{
+            padding: '8px 14px 10px',
+            background: 'rgba(255,255,255,0.02)',
+            borderTop: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            <div className="label-xs" style={{ marginBottom: 6 }}>默认保留的元素</div>
+            {[
+              ['Logo & 品牌名', 'Nike、Apple、Samsung 等品牌 wordmark'],
+              ['产品名 & 型号', 'iPhone 15 Pro、Air Max 270、SKU 编号'],
+              ['商标 & 认证', '® ™ 及 CE/FDA/ISO 标志'],
+              ['社交 & 链接', '@handle、#tag、URL、域名'],
+            ].map(([label, desc]) => (
+              <div key={label} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', width: 80, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', lineHeight: 1.4 }}>{desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div className="label-xs">API Keys</div>

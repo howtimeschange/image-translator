@@ -70,15 +70,18 @@ export interface TranslationJob {
   id: string
   imageUrl: string
   imageBase64: string | null
-  sourceLanguage: Language   // 'auto' 或具体语言
+  sourceLanguage: Language
   targetLanguage: Language
   model: ModelId
   status: 'pending' | 'translating' | 'done' | 'error'
   resultDataUrl?: string
   error?: string
   createdAt: number
-  /** 识图阶段抽取到的文字列表（用于调试显示） */
+  preserveBrand?: boolean
+  /** OCR 阶段结果：[保留] xxx / [翻译] xxx → yyy */
   ocrTexts?: string[]
+  keepCount?: number       // 保留的品牌元素数量
+  translateCount?: number  // 翻译的文字数量
 }
 
 export interface PageImage {
@@ -99,6 +102,12 @@ export interface Settings {
   defaultSourceLanguage: Language   // 默认源语言（'auto' 表示自动检测）
   defaultLanguage: Language
   defaultModel: ModelId
+  /**
+   * 保留品牌元素开关（默认 true）
+   * 开启时：Logo、品牌名、商标、SKU、产品型号等保持原文，只翻译功能性文案
+   * 关闭时：尝试翻译所有文字（激进模式）
+   */
+  preserveBrand: boolean
 }
 
 // Chrome message types

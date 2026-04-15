@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultSourceLanguage: 'auto',
   defaultLanguage: 'zh',
   defaultModel: 'nano-banana-2',
+  preserveBrand: true,
 }
 
 interface AppState {

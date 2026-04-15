@@ -39,8 +39,10 @@ export function JobCard({ job }: Props) {
           {job.ocrTexts && job.ocrTexts.length > 0 && (
             <>
               <span style={{ color: 'rgba(255,255,255,0.14)', fontSize: 10 }}>·</span>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
-                {job.ocrTexts.length} 处文字
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
+                {job.preserveBrand && job.keepCount ? `保留 ${job.keepCount}` : ''}
+                {job.preserveBrand && job.keepCount && job.translateCount ? ' / ' : ''}
+                {job.translateCount ? `翻译 ${job.translateCount}` : `${job.ocrTexts.length} 处`}
               </span>
             </>
           )}

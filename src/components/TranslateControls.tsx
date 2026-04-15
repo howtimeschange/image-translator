@@ -70,6 +70,7 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
     targetLanguage, setTargetLanguage,
     sourceLanguage, setSourceLanguage,
     selectedModel, setSelectedModel,
+    settings, setSettings,
   } = useAppStore()
 
   return (
@@ -79,14 +80,11 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
       <div>
         <SectionLabel>翻译方向</SectionLabel>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* 源语言 */}
           <LangSelect
             value={sourceLanguage}
             onChange={v => setSourceLanguage(v as any)}
             groups={SRC_GROUPS}
           />
-
-          {/* 箭头 */}
           <span style={{
             fontSize: 14,
             color: 'rgba(255,255,255,0.2)',
@@ -94,8 +92,6 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
             lineHeight: 1,
             userSelect: 'none',
           }}>→</span>
-
-          {/* 目标语言 */}
           <LangSelect
             value={targetLanguage}
             onChange={v => setTargetLanguage(v as any)}
@@ -103,6 +99,59 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
           />
         </div>
       </div>
+
+      {/* ── 品牌保护快捷开关 ── */}
+      <button
+        onClick={() => setSettings({ preserveBrand: !settings.preserveBrand })}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 12px',
+          borderRadius: 8,
+          border: `1px solid ${settings.preserveBrand ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`,
+          background: settings.preserveBrand ? 'rgba(255,255,255,0.04)' : 'transparent',
+          cursor: 'pointer',
+          transition: 'all 0.15s',
+          textAlign: 'left',
+          width: '100%',
+        }}
+      >
+        <div>
+          <div style={{
+            fontSize: 11, fontWeight: 600,
+            color: settings.preserveBrand ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.3)',
+            marginBottom: 2,
+          }}>
+            保留品牌与商标文本
+          </div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', lineHeight: 1.4 }}>
+            {settings.preserveBrand
+              ? 'Logo、品牌名、SKU 保持原文'
+              : '关闭 — 尝试翻译所有文字'}
+          </div>
+        </div>
+        {/* Mini toggle */}
+        <div style={{
+          width: 30, height: 17,
+          borderRadius: 9,
+          background: settings.preserveBrand ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.1)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          position: 'relative',
+          flexShrink: 0,
+          marginLeft: 10,
+          transition: 'background 0.2s',
+        }}>
+          <div style={{
+            position: 'absolute',
+            top: 2, left: settings.preserveBrand ? 14 : 2,
+            width: 11, height: 11,
+            borderRadius: '50%',
+            background: settings.preserveBrand ? '#0c0c0e' : 'rgba(255,255,255,0.3)',
+            transition: 'left 0.2s',
+          }} />
+        </div>
+      </button>
 
       {/* ── 模型选择 ── */}
       <div>

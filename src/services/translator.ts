@@ -6,43 +6,46 @@
 //   banana2ApiKey   → gemini-3.1-flash-image-preview（Nano Banana 2 生图）
 //   bananaProApiKey → gemini-3-pro-image-preview（Nano Banana Pro 生图）
 //
+// 翻译策略（preserveBrand=true 默认）：
+//   • Logo、品牌名、商标、SKU/型号、产品名称 → 保留原文，绝不翻译
+//   • 功能说明、促销文案、描述性文字 → 翻译为目标语言
+//
 // 翻译流程（两阶段）：
-//   Step 1: visionApiKey  → 精细 OCR，识别图中所有文字（含小字/角标/注脚）
-//   Step 2: banana2/pro   → image-to-image 翻译，附带 OCR 结果指导模型不遗漏任何文字
+//   Step 1: visionApiKey → 精细 OCR，区分"保留项"和"翻译项"
+//   Step 2: banana2/pro  → image-to-image，保留 layout/主体/logo/产品/背景不变
 
 import type { Language, ModelId } from './types'
 import { MODELS, LANGUAGE_NAMES } from './types'
 
 const RELAY_BASE_URL = 'https://api.1xm.ai/v1'
-
-// 识图模型
 const VISION_MODEL = 'gemini-3-flash-preview'
 
-// ── 接口定义 ──────────────────────────────────────────────────────────────────
+// ── OCR 结果接口 ──────────────────────────────────────────────────────────────
 
 export interface OcrResult {
   texts: Array<{
     original: string
-    translation: string
-    position: string   // top/center/bottom/topLeft/topRight/bottomLeft/bottomRight
-    size: 'large' | 'medium' | 'small' | 'tiny'   // 强调 tiny
-    style: string      // bold/italic/decorative/normal
+    translation: string | null   // null = 保留原文
+    keep: boolean                 // true = 品牌/logo/sku，不翻译
+    keepReason?: string           // 'brand' | 'logo' | 'sku' | 'trademark' | 'product_name'
+    position: string
+    size: 'large' | 'medium' | 'small' | 'tiny'
+    style: string
   }>
-  sourceLang: string   // 检测到的原始语言
+  sourceLang: string
   textCount: number
+  keepCount: number      // 保留原文的数量
+  translateCount: number // 翻译的数量
 }
 
-// ── Step 1: 精细 OCR 分析 ─────────────────────────────────────────────────────
-// 关键改进：
-//  1. 明确要求识别 ALL 文字，含角标、注释、小字、法律声明等
-//  2. 返回结构化 JSON 包含原文+译文，供 Step 2 参考
-//  3. 包含 size 字段以便后续 prompt 强调小字
+// ── Step 1：精细 OCR，区分保留 vs 翻译 ────────────────────────────────────────
 
 async function analyzeImageText(
   base64: string,
   sourceLanguage: Language,
   targetLanguage: Language,
   visionApiKey: string,
+  preserveBrand: boolean,
 ): Promise<OcrResult | null> {
   if (!visionApiKey) return null
 
@@ -51,27 +54,51 @@ async function analyzeImageText(
     ? 'Detect the source language automatically.'
     : `The source language is ${LANGUAGE_NAMES[sourceLanguage] ?? sourceLanguage}.`
 
-  const prompt = `You are a meticulous OCR and translation specialist.
+  const preserveSection = preserveBrand ? `
+## BRAND PRESERVATION RULES (CRITICAL)
+These text elements MUST be kept in their original form (set "keep": true, "translation": null):
+- Brand logos and wordmarks (Nike, Apple, Samsung, any brand name rendered as logo)
+- Product names and model numbers (iPhone 15 Pro, Air Max 270, Galaxy S24)
+- SKU codes, serial numbers, catalog numbers
+- Trademark symbols and registered brand text
+- Chemical/ingredient names, patent numbers
+- Social media handles (@brand, #hashtag)
+- Domain names and URLs
+- Certification marks (CE, FDA, ISO, etc.)
 
-TASK: Extract EVERY piece of text visible in this image, including:
-- Headlines and titles (large text)
-- Body copy and descriptions (medium text)
-- Labels, tags, badges, buttons (small text)
-- Footnotes, disclaimers, legal text, watermarks (tiny text)
-- Numbers, prices, dates, percentages
-- ANY text that is partially obscured but still readable
+ONLY translate: marketing copy, feature descriptions, promotional slogans, instructional text, UI labels, price notes, footnotes, and general descriptive text.
 
+When in doubt about whether something is a brand element → KEEP it (keep=true).` : `
+## TRANSLATION MODE: AGGRESSIVE
+Translate ALL visible text to ${targetLangName}, including brand names and product names.
+Only keep: chemical formulas, mathematical symbols, URLs.`
+
+  const prompt = `You are a meticulous OCR specialist for e-commerce product images.
+
+TASK: Extract EVERY piece of text visible in this image.
 ${sourceLangHint}
-Translate each text element to ${targetLangName}.
+Target translation language: ${targetLangName}
+${preserveSection}
 
-OUTPUT FORMAT: Return ONLY valid JSON (no markdown, no explanation):
+## TEXT SIZE CATEGORIES
+- large: headlines, main product name
+- medium: subheadings, features
+- small: labels, footnotes, legal text
+- tiny: micro-text, disclaimers, weight/size labels
+
+## OUTPUT FORMAT
+Return ONLY valid JSON (no markdown fences):
 {
-  "sourceLang": "detected language name in English",
-  "textCount": <total number of text elements found>,
+  "sourceLang": "detected language",
+  "textCount": <total>,
+  "keepCount": <number kept as original>,
+  "translateCount": <number to be translated>,
   "texts": [
     {
-      "original": "exact original text",
-      "translation": "translated text in ${targetLangName}",
+      "original": "exact text",
+      "translation": "translated text in ${targetLangName}" or null if keep=true,
+      "keep": true or false,
+      "keepReason": "brand|logo|sku|trademark|product_name|url|certification" (only if keep=true),
       "position": "topLeft|topCenter|topRight|centerLeft|center|centerRight|bottomLeft|bottomCenter|bottomRight",
       "size": "large|medium|small|tiny",
       "style": "bold|italic|normal|decorative|outline"
@@ -79,7 +106,7 @@ OUTPUT FORMAT: Return ONLY valid JSON (no markdown, no explanation):
   ]
 }
 
-IMPORTANT: Do NOT omit any text, especially small/tiny text. Every single word must be listed.`
+CRITICAL: Do NOT omit ANY text. Small/tiny text must all be listed. Every word counts.`
 
   const mimeType = detectMime(base64)
   try {
@@ -100,14 +127,13 @@ IMPORTANT: Do NOT omit any text, especially small/tiny text. Every single word m
             ],
           },
         ],
-        temperature: 0.1,   // 低温，确保识别准确
+        temperature: 0.1,
         max_tokens: 4096,
       }),
     })
     if (!res.ok) return null
     const data = await res.json()
     const raw = data.choices?.[0]?.message?.content ?? ''
-    // 提取 JSON，容忍模型在前后加 markdown fence
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) return null
     return JSON.parse(jsonMatch[0]) as OcrResult
@@ -116,16 +142,13 @@ IMPORTANT: Do NOT omit any text, especially small/tiny text. Every single word m
   }
 }
 
-// ── 构造翻译 Prompt（强化版）────────────────────────────────────────────────
-// 关键改进：
-//  1. 把 OCR 结果格式化成"翻译对照表"，让模型有明确的文字映射
-//  2. 显式强调必须翻译 small/tiny 文字
-//  3. 对每个文字元素给出 position 提示，防止模型跳过边缘文字
+// ── Step 2：构造生图 prompt ────────────────────────────────────────────────────
 
 function buildTranslationPrompt(
   targetLanguage: Language,
   sourceLanguage: Language,
   ocr: OcrResult | null,
+  preserveBrand: boolean,
 ): string {
   const targetLangName = LANGUAGE_NAMES[targetLanguage] ?? targetLanguage
   const sourceLangHint = ocr?.sourceLang
@@ -134,34 +157,61 @@ function buildTranslationPrompt(
       ? `The original image text is in ${LANGUAGE_NAMES[sourceLanguage] ?? sourceLanguage}.`
       : 'Detect the source language from the image.'
 
-  // 构建翻译对照表
-  let translationTable = ''
+  // 构建精确的翻译对照表
+  let keepList = ''
+  let translateList = ''
+
   if (ocr && ocr.texts.length > 0) {
-    const lines = ocr.texts.map((t, i) => {
-      const sizeNote = (t.size === 'small' || t.size === 'tiny') ? ' [SMALL TEXT - MUST TRANSLATE]' : ''
-      return `  ${i + 1}. [${t.position}]${sizeNote} "${t.original}" → "${t.translation}"`
-    })
-    translationTable = `\n\n## COMPLETE TEXT TRANSLATION REFERENCE (${ocr.textCount} text elements found)\nUse this mapping to translate EVERY text element. Do NOT skip any:\n\n${lines.join('\n')}`
+    const keepItems = ocr.texts.filter(t => t.keep)
+    const translateItems = ocr.texts.filter(t => !t.keep)
+
+    if (keepItems.length > 0) {
+      keepList = `\n\n## ❌ DO NOT TRANSLATE — Keep exactly as-is (${keepItems.length} items)\n` +
+        keepItems.map((t, i) =>
+          `  ${i + 1}. [${t.position}] "${t.original}"${t.keepReason ? ` (${t.keepReason})` : ''}`
+        ).join('\n')
+    }
+
+    if (translateItems.length > 0) {
+      translateList = `\n\n## ✅ TRANSLATE these (${translateItems.length} items)\n` +
+        translateItems.map((t, i) => {
+          const sizeNote = (t.size === 'small' || t.size === 'tiny') ? ' [SMALL — must not be skipped]' : ''
+          return `  ${i + 1}. [${t.position}]${sizeNote} "${t.original}" → "${t.translation}"`
+        }).join('\n')
+    }
   }
 
-  return `You are a professional image localization specialist. Recreate this image with ALL text translated to ${targetLangName}.
+  const preserveSection = preserveBrand ? `
+## BRAND & LAYOUT PROTECTION (MANDATORY)
+- NEVER alter: logos, brand wordmarks, product names, SKU codes, trademark text, certification marks
+- These must appear pixel-perfect identical to the original
+- The product itself, packaging shape, model number must remain unchanged` : ''
+
+  return `You are a professional e-commerce image localization specialist.
+
+## TASK
+Recreate this image with selected text translated to ${targetLangName}.
 
 ## SOURCE LANGUAGE
 ${sourceLangHint}
+${preserveSection}
 
 ## ABSOLUTE REQUIREMENTS
-1. Translate EVERY visible text element — headlines, body copy, labels, small print, footnotes, watermarks, numbers with units, legal disclaimers
-2. CRITICAL: Do NOT miss small or tiny text (corner labels, star ratings text, price footnotes, "as low as", percentage labels, etc.)
-3. PRESERVE exact layout, composition, backgrounds, and all visual elements
-4. MATCH original font style, size, weight, color, shadow, and visual effects for each text element
-5. For right-to-left languages (Arabic, Hebrew), mirror text direction
-6. Do NOT add watermarks or extra elements${translationTable}
+1. PRESERVE: overall layout, composition, background, product visuals, packaging, illustrations
+2. PRESERVE: image dimensions, proportions, color grading
+3. MATCH: original font style, weight, size, color, shadow for each translated text element
+4. TRANSLATE: only the items listed in the TRANSLATE section below
+5. KEEP VERBATIM: all items in the DO NOT TRANSLATE section
+6. Do NOT add watermarks, borders, or any elements not in the original
+7. Small/tiny text in the translate list MUST be translated — do not skip them
+8. For right-to-left languages (Arabic, Hebrew), mirror the text direction${keepList}${translateList}
 
-## OUTPUT
-Regenerate the complete image with ALL text translated to ${targetLangName}, maintaining identical visual quality and layout.`
+${!ocr ? `Translate all descriptive/marketing text to ${targetLangName}.${preserveBrand ? ' Preserve all logos, brand names, product model numbers, and SKU codes exactly.' : ''}` : ''}
+
+Regenerate the complete image with these precise text changes only.`
 }
 
-// ── Step 2: 图像翻译生成 ──────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 export async function translateImage(
   base64: string,
@@ -173,8 +223,9 @@ export async function translateImage(
     banana2ApiKey: string
     bananaProApiKey: string
   },
+  preserveBrand: boolean,
   onProgress?: (msg: string) => void,
-): Promise<{ resultDataUrl: string; ocrTexts: string[] }> {
+): Promise<{ resultDataUrl: string; ocrTexts: string[]; keepCount: number; translateCount: number }> {
   const modelConfig = MODELS.find((m) => m.id === modelId)
   if (!modelConfig) throw new Error(`Unknown model: ${modelId}`)
 
@@ -188,19 +239,28 @@ export async function translateImage(
 
   const mimeType = detectMime(base64)
 
-  // Step 1: 精细 OCR（失败不阻塞翻译）
-  onProgress?.('正在识别图片中的所有文字...')
-  const ocr = await analyzeImageText(base64, sourceLanguage, targetLanguage, apiKeys.visionApiKey)
+  // Step 1: OCR
+  onProgress?.('正在识别图片文字...')
+  const ocr = await analyzeImageText(base64, sourceLanguage, targetLanguage, apiKeys.visionApiKey, preserveBrand)
 
-  const ocrTexts = ocr?.texts.map(t => `${t.original} → ${t.translation}`) ?? []
+  const ocrTexts = ocr?.texts.map(t =>
+    t.keep
+      ? `[保留] ${t.original}`
+      : `[翻译] ${t.original} → ${t.translation}`
+  ) ?? []
+
   if (ocr) {
-    onProgress?.(`识别到 ${ocr.textCount} 处文字，正在翻译...`)
+    onProgress?.(
+      preserveBrand
+        ? `识别到 ${ocr.textCount} 处文字，保留 ${ocr.keepCount} 处品牌元素，翻译 ${ocr.translateCount} 处...`
+        : `识别到 ${ocr.textCount} 处文字，正在全量翻译...`
+    )
   } else {
     onProgress?.(`正在用 ${modelConfig.name} 翻译图片...`)
   }
 
-  // Step 2: 生图翻译
-  const prompt = buildTranslationPrompt(targetLanguage, sourceLanguage, ocr)
+  // Step 2: 生图
+  const prompt = buildTranslationPrompt(targetLanguage, sourceLanguage, ocr, preserveBrand)
 
   const res = await fetch(`${RELAY_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -222,7 +282,7 @@ export async function translateImage(
           ],
         },
       ],
-      temperature: 0.2,   // 低温，减少创意发散，提升翻译准确性
+      temperature: 0.2,
     }),
   })
 
@@ -234,19 +294,23 @@ export async function translateImage(
 
   const data = await res.json()
   const resultDataUrl = extractImageFromResponse(data)
-  return { resultDataUrl, ocrTexts }
+
+  return {
+    resultDataUrl,
+    ocrTexts,
+    keepCount: ocr?.keepCount ?? 0,
+    translateCount: ocr?.translateCount ?? 0,
+  }
 }
 
-// ── 从响应中提取图片 dataURL ──────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function extractImageFromResponse(data: any): string {
   const content = data.choices?.[0]?.message?.content
 
   if (Array.isArray(content)) {
     for (const part of content) {
-      if (part.type === 'image_url' && part.image_url?.url) {
-        return part.image_url.url
-      }
+      if (part.type === 'image_url' && part.image_url?.url) return part.image_url.url
       if (part.type === 'inline_data' && part.inline_data?.data) {
         return `data:${part.inline_data.mime_type ?? 'image/png'};base64,${part.inline_data.data}`
       }
@@ -268,8 +332,6 @@ function extractImageFromResponse(data: any): string {
 
   throw new Error('未能从响应中提取图片数据，请重试')
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 export function detectMime(base64: string): string {
   if (base64.startsWith('/9j/')) return 'image/jpeg'
