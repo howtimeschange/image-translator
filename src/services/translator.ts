@@ -7,8 +7,8 @@
 //   bananaProApiKey → gemini-3-pro-image-preview（Nano Banana Pro 生图）
 //
 // 翻译流程（两阶段）：
-//   Step 1: visionApiKey  → 识别原图文字内容 + 排版信息
-//   Step 2: banana2/pro   → image-to-image 翻译，保持布局/主体/字体风格
+//   Step 1: visionApiKey  → 精细 OCR，识别图中所有文字（含小字/角标/注脚）
+//   Step 2: banana2/pro   → image-to-image 翻译，附带 OCR 结果指导模型不遗漏任何文字
 
 import type { Language, ModelId } from './types'
 import { MODELS, LANGUAGE_NAMES } from './types'
@@ -18,40 +18,68 @@ const RELAY_BASE_URL = 'https://api.1xm.ai/v1'
 // 识图模型
 const VISION_MODEL = 'gemini-3-flash-preview'
 
-// ── 构造翻译 Prompt ───────────────────────────────────────────────────────────
+// ── 接口定义 ──────────────────────────────────────────────────────────────────
 
-function buildTranslationPrompt(targetLanguage: Language, textAnalysis: string): string {
-  const langName = LANGUAGE_NAMES[targetLanguage] ?? targetLanguage
-  const analysisHint = textAnalysis
-    ? `\n\nHere is the text analysis of the original image to help you translate accurately:\n${textAnalysis}`
-    : ''
-
-  return `You are a professional image localization specialist. Your task is to translate the text in this image to ${langName} while:
-
-1. PRESERVING the exact layout, composition, and structure of the original image
-2. KEEPING all visual elements, backgrounds, illustrations, and non-text content completely identical
-3. MATCHING the original font style, size, weight, and visual treatment (color, shadow, glow, outline, etc.)
-4. TRANSLATING only the text content to ${langName}, keeping the same meaning and tone
-5. MAINTAINING consistency — if the same text appears multiple times, translate it consistently
-6. DO NOT add watermarks, logos, or any extra elements not in the original
-7. For right-to-left languages (Arabic, Hebrew), mirror the text direction appropriately
-
-The translated image must look like a professionally localized version of the original.${analysisHint}
-
-Translate all visible text to ${langName} and regenerate the image with identical layout.`
+export interface OcrResult {
+  texts: Array<{
+    original: string
+    translation: string
+    position: string   // top/center/bottom/topLeft/topRight/bottomLeft/bottomRight
+    size: 'large' | 'medium' | 'small' | 'tiny'   // 强调 tiny
+    style: string      // bold/italic/decorative/normal
+  }>
+  sourceLang: string   // 检测到的原始语言
+  textCount: number
 }
 
-// ── Step 1: 识图分析（可选，提升精度）──────────────────────────────────────
+// ── Step 1: 精细 OCR 分析 ─────────────────────────────────────────────────────
+// 关键改进：
+//  1. 明确要求识别 ALL 文字，含角标、注释、小字、法律声明等
+//  2. 返回结构化 JSON 包含原文+译文，供 Step 2 参考
+//  3. 包含 size 字段以便后续 prompt 强调小字
 
 async function analyzeImageText(
   base64: string,
+  sourceLanguage: Language,
   targetLanguage: Language,
   visionApiKey: string,
-): Promise<string> {
-  if (!visionApiKey) return ''
+): Promise<OcrResult | null> {
+  if (!visionApiKey) return null
 
-  const langName = LANGUAGE_NAMES[targetLanguage]
-  const prompt = `Analyze this image. List all visible text elements with their position and visual style. Then provide translations to ${langName}. Output compact JSON only: {"texts":[{"original":"...","translation":"...","position":"top/center/bottom/left/right","style":"large/small/bold/italic/decorative"}]}`
+  const targetLangName = LANGUAGE_NAMES[targetLanguage]
+  const sourceLangHint = sourceLanguage === 'auto'
+    ? 'Detect the source language automatically.'
+    : `The source language is ${LANGUAGE_NAMES[sourceLanguage] ?? sourceLanguage}.`
+
+  const prompt = `You are a meticulous OCR and translation specialist.
+
+TASK: Extract EVERY piece of text visible in this image, including:
+- Headlines and titles (large text)
+- Body copy and descriptions (medium text)
+- Labels, tags, badges, buttons (small text)
+- Footnotes, disclaimers, legal text, watermarks (tiny text)
+- Numbers, prices, dates, percentages
+- ANY text that is partially obscured but still readable
+
+${sourceLangHint}
+Translate each text element to ${targetLangName}.
+
+OUTPUT FORMAT: Return ONLY valid JSON (no markdown, no explanation):
+{
+  "sourceLang": "detected language name in English",
+  "textCount": <total number of text elements found>,
+  "texts": [
+    {
+      "original": "exact original text",
+      "translation": "translated text in ${targetLangName}",
+      "position": "topLeft|topCenter|topRight|centerLeft|center|centerRight|bottomLeft|bottomCenter|bottomRight",
+      "size": "large|medium|small|tiny",
+      "style": "bold|italic|normal|decorative|outline"
+    }
+  ]
+}
+
+IMPORTANT: Do NOT omit any text, especially small/tiny text. Every single word must be listed.`
 
   const mimeType = detectMime(base64)
   try {
@@ -72,22 +100,72 @@ async function analyzeImageText(
             ],
           },
         ],
-        temperature: 0.2,
-        max_tokens: 2048,
+        temperature: 0.1,   // 低温，确保识别准确
+        max_tokens: 4096,
       }),
     })
-    if (!res.ok) return ''
+    if (!res.ok) return null
     const data = await res.json()
-    return data.choices?.[0]?.message?.content ?? ''
+    const raw = data.choices?.[0]?.message?.content ?? ''
+    // 提取 JSON，容忍模型在前后加 markdown fence
+    const jsonMatch = raw.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    return JSON.parse(jsonMatch[0]) as OcrResult
   } catch {
-    return ''
+    return null
   }
+}
+
+// ── 构造翻译 Prompt（强化版）────────────────────────────────────────────────
+// 关键改进：
+//  1. 把 OCR 结果格式化成"翻译对照表"，让模型有明确的文字映射
+//  2. 显式强调必须翻译 small/tiny 文字
+//  3. 对每个文字元素给出 position 提示，防止模型跳过边缘文字
+
+function buildTranslationPrompt(
+  targetLanguage: Language,
+  sourceLanguage: Language,
+  ocr: OcrResult | null,
+): string {
+  const targetLangName = LANGUAGE_NAMES[targetLanguage] ?? targetLanguage
+  const sourceLangHint = ocr?.sourceLang
+    ? `The original image text is in ${ocr.sourceLang}.`
+    : sourceLanguage !== 'auto'
+      ? `The original image text is in ${LANGUAGE_NAMES[sourceLanguage] ?? sourceLanguage}.`
+      : 'Detect the source language from the image.'
+
+  // 构建翻译对照表
+  let translationTable = ''
+  if (ocr && ocr.texts.length > 0) {
+    const lines = ocr.texts.map((t, i) => {
+      const sizeNote = (t.size === 'small' || t.size === 'tiny') ? ' [SMALL TEXT - MUST TRANSLATE]' : ''
+      return `  ${i + 1}. [${t.position}]${sizeNote} "${t.original}" → "${t.translation}"`
+    })
+    translationTable = `\n\n## COMPLETE TEXT TRANSLATION REFERENCE (${ocr.textCount} text elements found)\nUse this mapping to translate EVERY text element. Do NOT skip any:\n\n${lines.join('\n')}`
+  }
+
+  return `You are a professional image localization specialist. Recreate this image with ALL text translated to ${targetLangName}.
+
+## SOURCE LANGUAGE
+${sourceLangHint}
+
+## ABSOLUTE REQUIREMENTS
+1. Translate EVERY visible text element — headlines, body copy, labels, small print, footnotes, watermarks, numbers with units, legal disclaimers
+2. CRITICAL: Do NOT miss small or tiny text (corner labels, star ratings text, price footnotes, "as low as", percentage labels, etc.)
+3. PRESERVE exact layout, composition, backgrounds, and all visual elements
+4. MATCH original font style, size, weight, color, shadow, and visual effects for each text element
+5. For right-to-left languages (Arabic, Hebrew), mirror text direction
+6. Do NOT add watermarks or extra elements${translationTable}
+
+## OUTPUT
+Regenerate the complete image with ALL text translated to ${targetLangName}, maintaining identical visual quality and layout.`
 }
 
 // ── Step 2: 图像翻译生成 ──────────────────────────────────────────────────────
 
 export async function translateImage(
   base64: string,
+  sourceLanguage: Language,
   targetLanguage: Language,
   modelId: ModelId,
   apiKeys: {
@@ -96,11 +174,10 @@ export async function translateImage(
     bananaProApiKey: string
   },
   onProgress?: (msg: string) => void,
-): Promise<string> {
+): Promise<{ resultDataUrl: string; ocrTexts: string[] }> {
   const modelConfig = MODELS.find((m) => m.id === modelId)
   if (!modelConfig) throw new Error(`Unknown model: ${modelId}`)
 
-  // 根据模型选择对应的 API Key
   const genApiKey = modelId === 'nano-banana-pro'
     ? apiKeys.bananaProApiKey
     : apiKeys.banana2ApiKey
@@ -111,14 +188,19 @@ export async function translateImage(
 
   const mimeType = detectMime(base64)
 
-  // Step 1: 识图分析（非必须，失败也继续）
-  onProgress?.('正在分析图片文字内容...')
-  const textAnalysis = await analyzeImageText(base64, targetLanguage, apiKeys.visionApiKey)
+  // Step 1: 精细 OCR（失败不阻塞翻译）
+  onProgress?.('正在识别图片中的所有文字...')
+  const ocr = await analyzeImageText(base64, sourceLanguage, targetLanguage, apiKeys.visionApiKey)
 
-  // Step 2: 调用 Nano Banana 做 image-to-image 翻译
-  onProgress?.(`正在用 ${modelConfig.name} 翻译图片...`)
+  const ocrTexts = ocr?.texts.map(t => `${t.original} → ${t.translation}`) ?? []
+  if (ocr) {
+    onProgress?.(`识别到 ${ocr.textCount} 处文字，正在翻译...`)
+  } else {
+    onProgress?.(`正在用 ${modelConfig.name} 翻译图片...`)
+  }
 
-  const prompt = buildTranslationPrompt(targetLanguage, textAnalysis)
+  // Step 2: 生图翻译
+  const prompt = buildTranslationPrompt(targetLanguage, sourceLanguage, ocr)
 
   const res = await fetch(`${RELAY_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -140,7 +222,7 @@ export async function translateImage(
           ],
         },
       ],
-      temperature: 0.3,
+      temperature: 0.2,   // 低温，减少创意发散，提升翻译准确性
     }),
   })
 
@@ -151,7 +233,8 @@ export async function translateImage(
   }
 
   const data = await res.json()
-  return extractImageFromResponse(data)
+  const resultDataUrl = extractImageFromResponse(data)
+  return { resultDataUrl, ocrTexts }
 }
 
 // ── 从响应中提取图片 dataURL ──────────────────────────────────────────────────
@@ -159,7 +242,6 @@ export async function translateImage(
 function extractImageFromResponse(data: any): string {
   const content = data.choices?.[0]?.message?.content
 
-  // OpenAI-compatible content array format
   if (Array.isArray(content)) {
     for (const part of content) {
       if (part.type === 'image_url' && part.image_url?.url) {
@@ -171,14 +253,12 @@ function extractImageFromResponse(data: any): string {
     }
   }
 
-  // String content with embedded data URL
   if (typeof content === 'string') {
     const match = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/)
     if (match) return match[0]
     throw new Error('模型仅返回了文字，未生成图片。请检查模型是否支持图片输出，或重试。')
   }
 
-  // Gemini native format fallback
   const parts = data.candidates?.[0]?.content?.parts ?? []
   for (const part of parts) {
     if (part.inlineData?.data) {

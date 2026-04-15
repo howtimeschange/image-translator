@@ -24,6 +24,7 @@ export function App() {
     pageImages, setPageImages,
     jobs, addJob, updateJob, clearJobs,
     targetLanguage, selectedModel,
+    sourceLanguage,
   } = useAppStore()
 
   const [isScanningImages, setIsScanningImages] = useState(false)
@@ -94,25 +95,46 @@ export function App() {
     setIsTranslatingSingle(true)
     setSingleResult(null)
     setSingleError(null)
+
+    // 立即把 job 加入结果列表（状态 translating）
+    const jobId = `single-${Date.now()}`
+    const job: TranslationJob = {
+      id: jobId,
+      imageUrl: singleImage.url,
+      imageBase64: singleImage.base64,
+      sourceLanguage,
+      targetLanguage,
+      model: selectedModel,
+      status: 'translating',
+      createdAt: Date.now(),
+    }
+    addJob(job)
+
     try {
       const resp = await chrome.runtime.sendMessage({
         type: 'TRANSLATE_IMAGE',
         imageUrl: singleImage.url,
         imageBase64: singleImage.base64,
+        sourceLanguage,
         targetLanguage,
         model: selectedModel,
         visionApiKey: settings.visionApiKey,
         banana2ApiKey: settings.banana2ApiKey,
         bananaProApiKey: settings.bananaProApiKey,
-        jobId: `single-${Date.now()}`,
+        jobId,
       })
       if (resp?.error) throw new Error(resp.error)
-      setSingleResult(resp?.resultDataUrl)
+      const resultDataUrl = resp?.resultDataUrl
+      const ocrTexts = resp?.ocrTexts ?? []
+      setSingleResult(resultDataUrl)
+      updateJob(jobId, { status: 'done', resultDataUrl, ocrTexts })
     } catch (e: any) {
-      setSingleError(e?.message ?? '翻译失败，请重试')
+      const errMsg = e?.message ?? '翻译失败，请重试'
+      setSingleError(errMsg)
+      updateJob(jobId, { status: 'error', error: errMsg })
     }
     setIsTranslatingSingle(false)
-  }, [singleImage, settings, targetLanguage, selectedModel])
+  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel])
 
   // ── Batch translate ───────────────────────────────────────────────────────────
 
@@ -131,6 +153,7 @@ export function App() {
         id: jobId,
         imageUrl: img.src,
         imageBase64: img.base64 ?? null,
+        sourceLanguage,
         targetLanguage,
         model: selectedModel,
         status: 'translating',
@@ -142,6 +165,7 @@ export function App() {
         type: 'TRANSLATE_IMAGE',
         imageUrl: img.src,
         imageBase64: img.base64 ?? null,
+        sourceLanguage,
         targetLanguage,
         model: selectedModel,
         visionApiKey: settings.visionApiKey,
@@ -150,12 +174,12 @@ export function App() {
         jobId,
       }).then((resp: any) => {
         if (resp?.error) updateJob(jobId, { status: 'error', error: resp.error })
-        else updateJob(jobId, { status: 'done', resultDataUrl: resp?.resultDataUrl })
+        else updateJob(jobId, { status: 'done', resultDataUrl: resp?.resultDataUrl, ocrTexts: resp?.ocrTexts ?? [] })
       }).catch((e: any) => {
         updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
       })
     }
-  }, [pageImages, settings, targetLanguage, selectedModel])
+  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel])
 
   // ── Tab handler ───────────────────────────────────────────────────────────────
 

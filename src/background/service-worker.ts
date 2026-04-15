@@ -100,7 +100,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((err) => sendResponse({ error: String(err) }))
     return true
   }
-
   if (message.type === 'FETCH_IMAGE_BASE64_BG') {
     fetchImageBase64(message.url as string)
       .then((base64) => sendResponse({ base64 }))
@@ -127,6 +126,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function handleTranslate(message: {
   imageUrl: string
   imageBase64: string | null
+  sourceLanguage: Language
   targetLanguage: Language
   model: ModelId
   visionApiKey: string
@@ -134,7 +134,7 @@ async function handleTranslate(message: {
   bananaProApiKey: string
   jobId: string
 }) {
-  const { imageUrl, imageBase64, targetLanguage, model, visionApiKey, banana2ApiKey, bananaProApiKey, jobId } = message
+  const { imageUrl, imageBase64, sourceLanguage, targetLanguage, model, visionApiKey, banana2ApiKey, bananaProApiKey, jobId } = message
 
   let base64 = imageBase64
   if (!base64) {
@@ -146,12 +146,12 @@ async function handleTranslate(message: {
   }
   if (!base64) throw new Error('图片数据为空')
 
-  const resultDataUrl = await translateImage(base64, targetLanguage, model, {
+  const { resultDataUrl, ocrTexts } = await translateImage(base64, sourceLanguage, targetLanguage, model, {
     visionApiKey,
     banana2ApiKey,
     bananaProApiKey,
   })
-  return { jobId, resultDataUrl }
+  return { jobId, resultDataUrl, ocrTexts }
 }
 
 // ── 6. Keep service worker alive (MV3 workaround) ────────────────────────────

@@ -6,6 +6,7 @@ const DEFAULT_SETTINGS: Settings = {
   visionApiKey: '',
   banana2ApiKey: '',
   bananaProApiKey: '',
+  defaultSourceLanguage: 'auto',
   defaultLanguage: 'zh',
   defaultModel: 'nano-banana-2',
 }
@@ -41,6 +42,8 @@ interface AppState {
   // Current selection for translate
   targetLanguage: Language
   setTargetLanguage: (l: Language) => void
+  sourceLanguage: Language
+  setSourceLanguage: (l: Language) => void
   selectedModel: ModelId
   setSelectedModel: (m: ModelId) => void
 }
@@ -57,6 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ settings: { ...DEFAULT_SETTINGS, ...data.settings } })
       set({
         targetLanguage: data.settings.defaultLanguage ?? 'zh',
+        sourceLanguage: data.settings.defaultSourceLanguage ?? 'auto',
         selectedModel: data.settings.defaultModel ?? 'nano-banana-2',
       })
     }
@@ -102,6 +106,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   targetLanguage: 'zh',
   setTargetLanguage: (l) => set({ targetLanguage: l }),
+
+  sourceLanguage: 'auto' as Language,
+  setSourceLanguage: (l) => set({ sourceLanguage: l }),
 
   selectedModel: 'nano-banana-2',
   setSelectedModel: (m) => set({ selectedModel: m }),

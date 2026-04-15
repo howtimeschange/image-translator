@@ -2,6 +2,7 @@
 // 共享类型定义
 
 export type Language =
+  | 'auto'  // 自动检测（仅用于 sourceLanguage）
   | 'zh' | 'zh-TW' | 'en' | 'ja' | 'ko'
   | 'fr' | 'de' | 'es' | 'pt' | 'ru' | 'ar'
   // 东南亚
@@ -32,6 +33,7 @@ export const MODELS: ModelConfig[] = [
 ]
 
 export const LANGUAGES: { code: Language; label: string; nativeName: string; zhNote?: string }[] = [
+  { code: 'auto',  label: '自动',       nativeName: '自动检测',            zhNote: '检测' },
   { code: 'zh',    label: '中文',       nativeName: '简体中文',             zhNote: '简体' },
   { code: 'zh-TW', label: '繁中',       nativeName: '繁體中文',             zhNote: '繁体' },
   { code: 'en',    label: 'English',   nativeName: 'English',             zhNote: '英语' },
@@ -54,6 +56,12 @@ export const LANGUAGES: { code: Language; label: string; nativeName: string; zhN
   { code: 'lo',    label: 'ລາວ',       nativeName: 'ພາສາລາວ',            zhNote: '老挝' },
 ]
 
+// Source language options: includes 'auto', excludes nothing
+export const SOURCE_LANGUAGES = LANGUAGES
+
+// Target language options: excludes 'auto'
+export const TARGET_LANGUAGES = LANGUAGES.filter(l => l.code !== 'auto')
+
 export const LANGUAGE_NAMES: Record<Language, string> = Object.fromEntries(
   LANGUAGES.map((l) => [l.code, l.nativeName])
 ) as Record<Language, string>
@@ -62,12 +70,15 @@ export interface TranslationJob {
   id: string
   imageUrl: string
   imageBase64: string | null
+  sourceLanguage: Language   // 'auto' 或具体语言
   targetLanguage: Language
   model: ModelId
   status: 'pending' | 'translating' | 'done' | 'error'
   resultDataUrl?: string
   error?: string
   createdAt: number
+  /** 识图阶段抽取到的文字列表（用于调试显示） */
+  ocrTexts?: string[]
 }
 
 export interface PageImage {
@@ -85,6 +96,7 @@ export interface Settings {
   visionApiKey: string      // gemini-3-flash-preview（识图分析）
   banana2ApiKey: string     // gemini-3.1-flash-image-preview（Nano Banana 2 生图）
   bananaProApiKey: string   // gemini-3-pro-image-preview（Nano Banana Pro 生图）
+  defaultSourceLanguage: Language   // 默认源语言（'auto' 表示自动检测）
   defaultLanguage: Language
   defaultModel: ModelId
 }
