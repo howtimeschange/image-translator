@@ -1,55 +1,160 @@
-/* globals.css */
+/* ── globals.css ─────────────────────────────────────────────────────────────
+   Image Translator — Impeccable Design System
+   
+   Aesthetic: "Precision Instrument"
+   - Deep charcoal backgrounds (not pure black, tinted toward amber)
+   - Amber/gold accent (transformation, language, gold = value)
+   - Azeret Mono for headers (mechanical precision, non-standard)
+   - Figtree for body (geometric, clean, not overused)
+   - No glassmorphism as decoration
+   - No gradient text
+   - No border-left accent stripes
+   - OKLCH color system throughout
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
   color-scheme: dark;
+
+  /* ── Brand Colors (OKLCH) ── */
+  --amber-500: oklch(0.78 0.16 75);
+  --amber-400: oklch(0.84 0.18 75);
+  --amber-300: oklch(0.90 0.14 75);
+  --amber-600: oklch(0.68 0.15 72);
+
+  /* ── Surfaces (tinted toward amber hue) ── */
+  --bg-base:    oklch(0.13 0.008 75);   /* deep charcoal, slight amber tint */
+  --bg-raised:  oklch(0.17 0.008 75);
+  --bg-overlay: oklch(0.21 0.007 75);
+  --bg-subtle:  oklch(0.24 0.007 75);
+
+  /* ── Borders ── */
+  --border-subtle:  oklch(0.32 0.006 75);
+  --border-default: oklch(0.38 0.006 75);
+  --border-accent:  oklch(0.68 0.15 72 / 0.4);
+
+  /* ── Text ── */
+  --text-primary:   oklch(0.95 0.005 75);
+  --text-secondary: oklch(0.70 0.008 75);
+  --text-muted:     oklch(0.50 0.006 75);
+  --text-disabled:  oklch(0.38 0.005 75);
+
+  /* ── Status ── */
+  --green-500: oklch(0.72 0.17 145);
+  --green-dim: oklch(0.72 0.17 145 / 0.12);
+  --red-500:   oklch(0.65 0.22 27);
+  --red-dim:   oklch(0.65 0.22 27 / 0.12);
+
+  /* ── Space scale (4pt) ── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+
+  /* ── Typography ── */
+  --font-display: 'Azeret Mono', ui-monospace, monospace;
+  --font-body:    'Figtree', system-ui, sans-serif;
+
+  /* ── Radius ── */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
 }
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
-  margin: 0;
-  padding: 0;
-  background: #0f1117;
-  color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  overflow-x: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
 
-/* Glass card */
-.glass {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
-  border-radius: 12px;
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--amber-500);
+  outline-offset: 2px;
 }
 
-/* Loading shimmer */
+/* ── Shimmer skeleton ── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
+  0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(
+    90deg,
+    var(--bg-raised) 25%,
+    var(--bg-overlay) 50%,
+    var(--bg-raised) 75%
+  );
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--r-sm);
 }
 
-/* Progress bar */
-@keyframes progress-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+/* ── Surface card ── */
+.surface {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
 }
-.progress-bar {
-  animation: progress-pulse 1.5s ease-in-out infinite;
+
+/* ── Status dot ── */
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
+.status-dot.translating { background: var(--amber-500); animation: pulse-amber 1.2s ease-in-out infinite; }
+.status-dot.done  { background: var(--green-500); }
+.status-dot.error { background: var(--red-500); }
+
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ── Spin ── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--amber-500);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Fade in ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 0.25s ease-out both; }

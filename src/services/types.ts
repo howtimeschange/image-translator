@@ -31,27 +31,27 @@ export const MODELS: ModelConfig[] = [
   },
 ]
 
-export const LANGUAGES: { code: Language; label: string; nativeName: string }[] = [
-  { code: 'zh', label: '中文', nativeName: '简体中文' },
-  { code: 'zh-TW', label: '繁中', nativeName: '繁體中文' },
-  { code: 'en', label: 'English', nativeName: 'English' },
-  { code: 'ja', label: '日本語', nativeName: '日本語' },
-  { code: 'ko', label: '한국어', nativeName: '한국어' },
-  { code: 'fr', label: 'Français', nativeName: 'Français' },
-  { code: 'de', label: 'Deutsch', nativeName: 'Deutsch' },
-  { code: 'es', label: 'Español', nativeName: 'Español' },
-  { code: 'pt', label: 'Português', nativeName: 'Português' },
-  { code: 'ru', label: 'Русский', nativeName: 'Русский' },
-  { code: 'ar', label: 'العربية', nativeName: 'العربية' },
+export const LANGUAGES: { code: Language; label: string; nativeName: string; zhNote?: string }[] = [
+  { code: 'zh',    label: '中文',       nativeName: '简体中文',             zhNote: '简体' },
+  { code: 'zh-TW', label: '繁中',       nativeName: '繁體中文',             zhNote: '繁体' },
+  { code: 'en',    label: 'English',   nativeName: 'English',             zhNote: '英语' },
+  { code: 'ja',    label: '日本語',     nativeName: '日本語',               zhNote: '日语' },
+  { code: 'ko',    label: '한국어',     nativeName: '한국어',               zhNote: '韩语' },
+  { code: 'fr',    label: 'Français',  nativeName: 'Français',            zhNote: '法语' },
+  { code: 'de',    label: 'Deutsch',   nativeName: 'Deutsch',             zhNote: '德语' },
+  { code: 'es',    label: 'Español',   nativeName: 'Español',             zhNote: '西班牙' },
+  { code: 'pt',    label: 'Português', nativeName: 'Português',           zhNote: '葡萄牙' },
+  { code: 'ru',    label: 'Русский',   nativeName: 'Русский',             zhNote: '俄语' },
+  { code: 'ar',    label: 'العربية',   nativeName: 'العربية',             zhNote: '阿拉伯' },
   // 东南亚
-  { code: 'th', label: 'ไทย', nativeName: 'ภาษาไทย' },
-  { code: 'vi', label: 'Tiếng Việt', nativeName: 'Tiếng Việt' },
-  { code: 'id', label: 'Indonesia', nativeName: 'Bahasa Indonesia' },
-  { code: 'ms', label: 'Melayu', nativeName: 'Bahasa Melayu' },
-  { code: 'tl', label: 'Filipino', nativeName: 'Filipino (Tagalog)' },
-  { code: 'my', label: 'မြန်မာ', nativeName: 'မြန်မာဘာသာ' },
-  { code: 'km', label: 'ខ្មែរ', nativeName: 'ភាសាខ្មែរ' },
-  { code: 'lo', label: 'ລາວ', nativeName: 'ພາສາລາວ' },
+  { code: 'th',    label: 'ไทย',       nativeName: 'ภาษาไทย',            zhNote: '泰语' },
+  { code: 'vi',    label: 'Việt',      nativeName: 'Tiếng Việt',         zhNote: '越南' },
+  { code: 'id',    label: 'Indonesia', nativeName: 'Bahasa Indonesia',    zhNote: '印尼' },
+  { code: 'ms',    label: 'Melayu',    nativeName: 'Bahasa Melayu',       zhNote: '马来' },
+  { code: 'tl',    label: 'Filipino',  nativeName: 'Filipino (Tagalog)',  zhNote: '菲律宾' },
+  { code: 'my',    label: 'မြန်မာ',    nativeName: 'မြန်မာဘာသာ',         zhNote: '缅甸' },
+  { code: 'km',    label: 'ខ្មែរ',      nativeName: 'ភាសាខ្មែរ',          zhNote: '柬埔寨' },
+  { code: 'lo',    label: 'ລາວ',       nativeName: 'ພາສາລາວ',            zhNote: '老挝' },
 ]
 
 export const LANGUAGE_NAMES: Record<Language, string> = Object.fromEntries(

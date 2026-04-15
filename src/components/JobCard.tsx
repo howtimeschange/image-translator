@@ -1,11 +1,8 @@
 // ── JobCard.tsx ───────────────────────────────────────────────────────────────
-// 显示单个翻译任务结果
 import type { TranslationJob } from '../services/types'
 import { LANGUAGE_NAMES } from '../services/types'
 
-interface Props {
-  job: TranslationJob
-}
+interface Props { job: TranslationJob }
 
 export function JobCard({ job }: Props) {
   const handleDownload = () => {
@@ -19,64 +16,82 @@ export function JobCard({ job }: Props) {
   const langName = LANGUAGE_NAMES[job.targetLanguage] ?? job.targetLanguage
 
   return (
-    <div className="glass p-3 space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <span className={`w-2 h-2 rounded-full ${
-            job.status === 'done' ? 'bg-emerald-400' :
-            job.status === 'error' ? 'bg-red-400' :
-            'bg-amber-400 animate-pulse'
-          }`} />
-          <span>{langName}</span>
-          <span>·</span>
-          <span>{job.model === 'nano-banana-pro' ? '⚡ Pro' : '🍌 Banana 2'}</span>
+    <div className="fade-up surface" style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      {/* Meta row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <span className={`status-dot ${job.status}`} />
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>
+            {langName}
+          </span>
+          <span style={{ color: 'var(--border-default)', fontSize: 10 }}>·</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+            {job.model === 'nano-banana-pro' ? 'Pro' : 'Banana 2'}
+          </span>
         </div>
         {job.status === 'done' && (
           <button
             onClick={handleDownload}
-            className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
+            style={{
+              fontSize: 11,
+              color: 'var(--amber-400)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '0.04em',
+            }}
           >
             ↓ 下载
           </button>
         )}
       </div>
 
-      {/* Image comparison */}
+      {/* Content */}
       {job.status === 'done' && job.resultDataUrl ? (
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <div className="text-xs text-slate-500 text-center">原图</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
+          {[
+            { src: job.imageUrl, label: '原图', labelColor: 'var(--text-muted)' },
+            { src: job.resultDataUrl, label: '翻译后', labelColor: 'var(--amber-400)' },
+          ].map(({ src, label, labelColor }) => (
+            <div key={label}>
+              <div style={{ fontSize: 10, color: labelColor, marginBottom: 4, fontFamily: 'var(--font-display)', letterSpacing: '0.06em' }}>{label}</div>
               <img
-                src={job.imageUrl}
-                alt="原图"
-                className="w-full rounded-lg object-contain max-h-40 bg-slate-900"
+                src={src}
+                alt={label}
+                style={{
+                  width: '100%',
+                  height: 120,
+                  objectFit: 'cover',
+                  borderRadius: 'var(--r-sm)',
+                  background: 'var(--bg-overlay)',
+                  display: 'block',
+                }}
               />
             </div>
-            <div className="space-y-1">
-              <div className="text-xs text-emerald-400 text-center">翻译后</div>
-              <img
-                src={job.resultDataUrl}
-                alt="翻译后"
-                className="w-full rounded-lg object-contain max-h-40 bg-slate-900"
-              />
-            </div>
-          </div>
-          {/* Full result preview */}
-          <div className="text-xs text-slate-400 text-center">点击右键可保存翻译后图片</div>
+          ))}
         </div>
       ) : job.status === 'translating' ? (
-        <div className="space-y-2">
-          <div className="shimmer h-32 rounded-lg" />
-          <div className="text-xs text-amber-400 text-center animate-pulse">正在翻译，请稍候...</div>
+        <div>
+          <div className="shimmer" style={{ height: 120 }} />
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--amber-400)', fontFamily: 'var(--font-display)', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="spinner" style={{ width: 10, height: 10 }} />
+            翻译中…
+          </div>
         </div>
       ) : job.status === 'error' ? (
-        <div className="bg-red-950/50 border border-red-800 rounded-lg p-3 text-xs text-red-300">
-          ❌ {job.error ?? '翻译失败，请重试'}
+        <div style={{
+          background: 'var(--red-dim)',
+          border: '1px solid oklch(0.65 0.22 27 / 0.25)',
+          borderRadius: 'var(--r-sm)',
+          padding: 'var(--space-2) var(--space-3)',
+          fontSize: 11,
+          color: 'var(--red-500)',
+        }}>
+          {job.error ?? '翻译失败，请重试'}
         </div>
       ) : (
-        <div className="shimmer h-20 rounded-lg" />
+        <div className="shimmer" style={{ height: 80 }} />
       )}
     </div>
   )

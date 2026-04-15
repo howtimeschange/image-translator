@@ -5,41 +5,68 @@ import { MODELS } from '../services/types'
 
 interface KeyFieldProps {
   label: string
+  sublabel: string
   hint: string
-  model: string
   value: string
   onChange: (v: string) => void
+  required?: boolean
 }
 
-function KeyField({ label, hint, model, value, onChange }: KeyFieldProps) {
+function KeyField({ label, sublabel, hint, value, onChange, required }: KeyFieldProps) {
   const [show, setShow] = useState(false)
   const hasKey = value.trim().length > 0
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <span className="text-sm font-medium text-white">{label}</span>
-          <span className="ml-2 text-[10px] text-slate-500 font-mono">{model}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+          {required && <span style={{ fontSize: 10, color: 'var(--amber-500)', marginLeft: 4 }}>必填</span>}
         </div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${hasKey ? 'bg-emerald-900/60 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+        <span style={{
+          fontSize: 10,
+          fontFamily: 'var(--font-display)',
+          letterSpacing: '0.04em',
+          padding: '1px 7px',
+          borderRadius: 12,
+          background: hasKey ? 'var(--green-dim)' : 'var(--bg-overlay)',
+          color: hasKey ? 'var(--green-500)' : 'var(--text-disabled)',
+          border: hasKey ? '1px solid oklch(0.72 0.17 145 / 0.2)' : '1px solid var(--border-subtle)',
+        }}>
           {hasKey ? '已配置' : '未配置'}
         </span>
       </div>
-      <p className="text-xs text-slate-500">{hint}</p>
-      <div className="relative">
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-display)', letterSpacing: '0.03em' }}>{sublabel}</div>
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{hint}</p>
+      <div style={{ position: 'relative' }}>
         <input
           type={show ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="sk-..."
-          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 transition-colors"
+          style={{
+            width: '100%',
+            background: 'var(--bg-overlay)',
+            border: hasKey ? '1px solid var(--border-accent)' : '1px solid var(--border-subtle)',
+            borderRadius: 'var(--r-sm)',
+            padding: '7px 36px 7px 10px',
+            fontSize: 12,
+            fontFamily: 'var(--font-display)',
+            letterSpacing: '0.04em',
+            color: 'var(--text-primary)',
+            outline: 'none',
+            transition: 'border-color 0.15s ease',
+          }}
         />
         <button
           onClick={() => setShow(!show)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-base"
+          style={{
+            position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 12, color: 'var(--text-muted)',
+          }}
         >
-          {show ? '🙈' : '👁️'}
+          {show ? '●' : '○'}
         </button>
       </div>
     </div>
@@ -57,93 +84,111 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="p-4 space-y-5">
-      {/* API Keys */}
-      <div className="glass p-4 space-y-5">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🔑</span>
-          <div>
-            <h3 className="font-semibold text-white">API Keys</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              1xm.ai 平台不同模型对应不同 Key。
-              <a href="https://1xm.ai" target="_blank" rel="noreferrer"
-                className="text-violet-400 ml-1 hover:underline">获取 Key →</a>
-            </p>
+    <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {/* API Keys section */}
+      <div className="surface" style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+            API Keys
           </div>
+          <a
+            href="https://1xm.ai"
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontSize: 11, color: 'var(--amber-400)', textDecoration: 'none' }}
+          >
+            获取 Key →
+          </a>
         </div>
-
-        <div className="h-px bg-slate-700" />
+        <div style={{ height: 1, background: 'var(--border-subtle)' }} />
 
         <KeyField
           label="Vision 识图"
-          hint="用于 Step 1 分析原图文字内容和排版，非必填（空则跳过分析直接翻译）"
-          model="gemini-3-flash-preview"
+          sublabel="gemini-3-flash-preview"
+          hint="分析原图文字排版，提升翻译精度（可选，空则跳过分析步骤）"
           value={settings.visionApiKey}
           onChange={(v) => setSettings({ visionApiKey: v })}
         />
 
-        <div className="h-px bg-slate-700/50" />
+        <div style={{ height: 1, background: 'var(--border-subtle)', opacity: 0.5 }} />
 
         <KeyField
           label="Nano Banana 2"
-          hint="用于快速图片翻译生成"
-          model="gemini-3.1-flash-image-preview"
+          sublabel="gemini-3.1-flash-image-preview"
+          hint="快速图片翻译，日常使用推荐"
           value={settings.banana2ApiKey}
           onChange={(v) => setSettings({ banana2ApiKey: v })}
+          required
         />
 
-        <div className="h-px bg-slate-700/50" />
+        <div style={{ height: 1, background: 'var(--border-subtle)', opacity: 0.5 }} />
 
         <KeyField
           label="Nano Banana Pro"
-          hint="用于高质量图片翻译生成（选填，仅在选择 Pro 模型时需要）"
-          model="gemini-3-pro-image-preview"
+          sublabel="gemini-3-pro-image-preview"
+          hint="高质量翻译（选用 Pro 模型时填写）"
           value={settings.bananaProApiKey}
           onChange={(v) => setSettings({ bananaProApiKey: v })}
         />
       </div>
 
-      {/* Default Model */}
-      <div className="glass p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🤖</span>
-          <h3 className="font-semibold text-white">默认生图模型</h3>
+      {/* Default model */}
+      <div className="surface" style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+          默认模型
         </div>
-        <div className="space-y-2">
-          {MODELS.map((m) => (
-            <label key={m.id} className="flex items-start gap-3 cursor-pointer group">
-              <input
-                type="radio"
-                name="defaultModel"
-                value={m.id}
-                checked={settings.defaultModel === m.id}
-                onChange={() => setSettings({ defaultModel: m.id })}
-                className="mt-1 accent-violet-500"
-              />
-              <div>
-                <div className="text-sm font-medium text-white group-hover:text-violet-300 transition-colors">
-                  {m.name}
-                </div>
-                <div className="text-xs text-slate-400">{m.description} · <span className="font-mono">{m.modelName}</span></div>
+        {MODELS.map((m) => (
+          <label
+            key={m.id}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', cursor: 'pointer' }}
+          >
+            <div
+              style={{
+                marginTop: 2,
+                width: 14, height: 14,
+                borderRadius: '50%',
+                border: settings.defaultModel === m.id ? '4px solid var(--amber-500)' : '2px solid var(--border-default)',
+                flexShrink: 0,
+                transition: 'all 0.15s ease',
+                background: settings.defaultModel === m.id ? 'var(--bg-base)' : 'transparent',
+                cursor: 'pointer',
+              }}
+              onClick={() => setSettings({ defaultModel: m.id })}
+            />
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: settings.defaultModel === m.id ? 'var(--amber-400)' : 'var(--text-primary)' }}>
+                {m.name}
               </div>
-            </label>
-          ))}
-        </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-display)', letterSpacing: '0.03em', marginTop: 1 }}>
+                {m.description} · {m.modelName}
+              </div>
+            </div>
+          </label>
+        ))}
       </div>
 
       {/* Save */}
       <button
         onClick={handleSave}
-        className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all bg-violet-600 hover:bg-violet-500 text-white"
+        style={{
+          padding: '10px',
+          borderRadius: 'var(--r-md)',
+          border: saved ? '1px solid oklch(0.72 0.17 145 / 0.4)' : '1px solid var(--amber-600)',
+          background: saved ? 'var(--green-dim)' : 'oklch(0.78 0.16 75 / 0.15)',
+          color: saved ? 'var(--green-500)' : 'var(--amber-400)',
+          fontSize: 13,
+          fontFamily: 'var(--font-display)',
+          fontWeight: 600,
+          letterSpacing: '0.05em',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+        }}
       >
-        {saved ? '✅ 已保存' : '保存设置'}
+        {saved ? '✓ 已保存' : '保存设置'}
       </button>
 
-      {/* About */}
-      <div className="glass p-4 text-xs text-slate-400 space-y-1">
-        <div className="font-medium text-slate-300">说明</div>
-        <div>· Vision Key 为可选项，填写后翻译质量更高（先识图再翻译）</div>
-        <div>· 所有 Key 仅存储在本地，不会上传任何服务器</div>
+      <div style={{ fontSize: 10, color: 'var(--text-disabled)', lineHeight: 1.6, fontFamily: 'var(--font-display)', letterSpacing: '0.03em' }}>
+        所有 Key 仅存储在本地 chrome.storage.local，不会上传任何服务器
       </div>
     </div>
   )
