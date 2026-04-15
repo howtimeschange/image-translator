@@ -1,0 +1,26 @@
+{
+  "name": "image-translator",
+  "version": "1.0.0",
+  "description": "AI 网页图片翻译 Chrome 插件 - 基于 Nano Banana 模型",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "zip": "npm run build && cd dist && zip -r ../extension.zip . && cd .."
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/chrome": "^0.0.287",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.0"
+  }
+}
