@@ -1,113 +1,130 @@
 // ── translator.ts ─────────────────────────────────────────────────────────────
 // 核心翻译服务：调用 1xm.ai Relay 的 Nano Banana 模型
-// 支持 nano-banana-2（gemini-3.1-flash-image-preview）
-//     nano-banana-pro（gemini-3-pro-image-preview）
 //
-// 思路：
-//   1. 先用视觉模型（gemini-3-flash-preview）识别原图中的文字内容、布局、字体风格
-//   2. 用图像生成模型（nano-banana）进行 image-to-image 翻译，保持布局/主体/字体风格不变
+// ⚠️  1xm.ai 平台说明：不同模型对应不同的 API Key
+//   visionApiKey    → gemini-3-flash-preview（识图 / OCR 分析）
+//   banana2ApiKey   → gemini-3.1-flash-image-preview（Nano Banana 2 生图）
+//   bananaProApiKey → gemini-3-pro-image-preview（Nano Banana Pro 生图）
+//
+// 翻译流程（两阶段）：
+//   Step 1: visionApiKey  → 识别原图文字内容 + 排版信息
+//   Step 2: banana2/pro   → image-to-image 翻译，保持布局/主体/字体风格
 
 import type { Language, ModelId } from './types'
 import { MODELS, LANGUAGE_NAMES } from './types'
 
 const RELAY_BASE_URL = 'https://api.1xm.ai/v1'
 
-// 识图模型（用于分析原图的文字内容和排版）
+// 识图模型
 const VISION_MODEL = 'gemini-3-flash-preview'
 
-// ── 构造翻译 prompt ───────────────────────────────────────────────────────────
+// ── 构造翻译 Prompt ───────────────────────────────────────────────────────────
 
-function buildTranslationPrompt(targetLanguage: Language): string {
+function buildTranslationPrompt(targetLanguage: Language, textAnalysis: string): string {
   const langName = LANGUAGE_NAMES[targetLanguage] ?? targetLanguage
+  const analysisHint = textAnalysis
+    ? `\n\nHere is the text analysis of the original image to help you translate accurately:\n${textAnalysis}`
+    : ''
+
   return `You are a professional image localization specialist. Your task is to translate the text in this image to ${langName} while:
 
 1. PRESERVING the exact layout, composition, and structure of the original image
-2. KEEPING all visual elements, backgrounds, illustrations, and non-text content identical
-3. MATCHING the original font style, size, weight, and visual treatment (color, shadow, glow, etc.)
+2. KEEPING all visual elements, backgrounds, illustrations, and non-text content completely identical
+3. MATCHING the original font style, size, weight, and visual treatment (color, shadow, glow, outline, etc.)
 4. TRANSLATING only the text content to ${langName}, keeping the same meaning and tone
 5. MAINTAINING consistency — if the same text appears multiple times, translate it consistently
 6. DO NOT add watermarks, logos, or any extra elements not in the original
+7. For right-to-left languages (Arabic, Hebrew), mirror the text direction appropriately
 
-The translated image must look like a professionally localized version of the original — a native speaker of ${langName} should feel this image was originally created in their language.
+The translated image must look like a professionally localized version of the original.${analysisHint}
 
-Translate all visible text to ${langName} and regenerate the image.`
+Translate all visible text to ${langName} and regenerate the image with identical layout.`
 }
 
-// ── 分析原图文字（可选，提升翻译质量）──────────────────────────────────────
+// ── Step 1: 识图分析（可选，提升精度）──────────────────────────────────────
 
 async function analyzeImageText(
   base64: string,
   targetLanguage: Language,
-  apiKey: string
+  visionApiKey: string,
 ): Promise<string> {
+  if (!visionApiKey) return ''
+
   const langName = LANGUAGE_NAMES[targetLanguage]
-  const prompt = `Analyze this image and list all visible text content. For each text element, note its approximate position and visual style (font weight, size, color). Then provide the translations in ${langName}. Output as a concise JSON: {"texts": [{"original": "...", "translation": "...", "position": "top/center/bottom/left/right", "style": "large/small/bold/italic/etc"}]}`
+  const prompt = `Analyze this image. List all visible text elements with their position and visual style. Then provide translations to ${langName}. Output compact JSON only: {"texts":[{"original":"...","translation":"...","position":"top/center/bottom/left/right","style":"large/small/bold/italic/decorative"}]}`
 
   const mimeType = detectMime(base64)
-  const res = await fetch(`${RELAY_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-            { type: 'text', text: prompt },
-          ],
-        },
-      ],
-      temperature: 0.2,
-      max_tokens: 2048,
-    }),
-  })
-
-  if (!res.ok) return ''
-  const data = await res.json()
-  return data.choices?.[0]?.message?.content ?? ''
+  try {
+    const res = await fetch(`${RELAY_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${visionApiKey}`,
+      },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+              { type: 'text', text: prompt },
+            ],
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 2048,
+      }),
+    })
+    if (!res.ok) return ''
+    const data = await res.json()
+    return data.choices?.[0]?.message?.content ?? ''
+  } catch {
+    return ''
+  }
 }
 
-// ── 主翻译函数 ────────────────────────────────────────────────────────────────
+// ── Step 2: 图像翻译生成 ──────────────────────────────────────────────────────
 
 export async function translateImage(
   base64: string,
   targetLanguage: Language,
   modelId: ModelId,
-  apiKey: string,
-  onProgress?: (msg: string) => void
+  apiKeys: {
+    visionApiKey: string
+    banana2ApiKey: string
+    bananaProApiKey: string
+  },
+  onProgress?: (msg: string) => void,
 ): Promise<string> {
   const modelConfig = MODELS.find((m) => m.id === modelId)
   if (!modelConfig) throw new Error(`Unknown model: ${modelId}`)
 
-  const mimeType = detectMime(base64)
+  // 根据模型选择对应的 API Key
+  const genApiKey = modelId === 'nano-banana-pro'
+    ? apiKeys.bananaProApiKey
+    : apiKeys.banana2ApiKey
 
-  // Step 1: Analyze text in image for better translation context
-  onProgress?.('正在分析图片文字内容...')
-  let textAnalysis = ''
-  try {
-    textAnalysis = await analyzeImageText(base64, targetLanguage, apiKey)
-  } catch {
-    // non-fatal, proceed without text analysis
+  if (!genApiKey) {
+    throw new Error(`请在设置中配置 ${modelConfig.name} 的 API Key`)
   }
 
-  // Step 2: Build the full translation prompt
-  const basePrompt = buildTranslationPrompt(targetLanguage)
-  const fullPrompt = textAnalysis
-    ? `${basePrompt}\n\nHere is a text analysis of the original image to help you translate accurately:\n${textAnalysis}`
-    : basePrompt
+  const mimeType = detectMime(base64)
 
-  // Step 3: Call Nano Banana (image-to-image generation)
+  // Step 1: 识图分析（非必须，失败也继续）
+  onProgress?.('正在分析图片文字内容...')
+  const textAnalysis = await analyzeImageText(base64, targetLanguage, apiKeys.visionApiKey)
+
+  // Step 2: 调用 Nano Banana 做 image-to-image 翻译
   onProgress?.(`正在用 ${modelConfig.name} 翻译图片...`)
+
+  const prompt = buildTranslationPrompt(targetLanguage, textAnalysis)
 
   const res = await fetch(`${RELAY_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${genApiKey}`,
     },
     body: JSON.stringify({
       model: modelConfig.modelName,
@@ -119,7 +136,7 @@ export async function translateImage(
               type: 'image_url',
               image_url: { url: `data:${mimeType};base64,${base64}` },
             },
-            { type: 'text', text: fullPrompt },
+            { type: 'text', text: prompt },
           ],
         },
       ],
@@ -134,15 +151,15 @@ export async function translateImage(
   }
 
   const data = await res.json()
+  return extractImageFromResponse(data)
+}
 
-  // Extract image from response (OpenAI-compatible format from 1xm.ai relay)
-  // The relay returns image data in content parts
+// ── 从响应中提取图片 dataURL ──────────────────────────────────────────────────
+
+function extractImageFromResponse(data: any): string {
   const content = data.choices?.[0]?.message?.content
-  if (typeof content === 'string') {
-    // Sometimes the model returns a text description instead of an image
-    throw new Error('模型返回文字而非图片，请重试或换用另一个模型')
-  }
 
+  // OpenAI-compatible content array format
   if (Array.isArray(content)) {
     for (const part of content) {
       if (part.type === 'image_url' && part.image_url?.url) {
@@ -154,7 +171,14 @@ export async function translateImage(
     }
   }
 
-  // Fallback: try Gemini native format
+  // String content with embedded data URL
+  if (typeof content === 'string') {
+    const match = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/)
+    if (match) return match[0]
+    throw new Error('模型仅返回了文字，未生成图片。请检查模型是否支持图片输出，或重试。')
+  }
+
+  // Gemini native format fallback
   const parts = data.candidates?.[0]?.content?.parts ?? []
   for (const part of parts) {
     if (part.inlineData?.data) {

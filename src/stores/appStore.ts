@@ -3,7 +3,9 @@ import { create } from 'zustand'
 import type { Language, ModelId, TranslationJob, PageImage, Settings } from '../services/types'
 
 const DEFAULT_SETTINGS: Settings = {
-  apiKey: '',
+  visionApiKey: '',
+  banana2ApiKey: '',
+  bananaProApiKey: '',
   defaultLanguage: 'zh',
   defaultModel: 'nano-banana-2',
 }

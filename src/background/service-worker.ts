@@ -129,10 +129,12 @@ async function handleTranslate(message: {
   imageBase64: string | null
   targetLanguage: Language
   model: ModelId
-  apiKey: string
+  visionApiKey: string
+  banana2ApiKey: string
+  bananaProApiKey: string
   jobId: string
 }) {
-  const { imageUrl, imageBase64, targetLanguage, model, apiKey, jobId } = message
+  const { imageUrl, imageBase64, targetLanguage, model, visionApiKey, banana2ApiKey, bananaProApiKey, jobId } = message
 
   let base64 = imageBase64
   if (!base64) {
@@ -144,7 +146,11 @@ async function handleTranslate(message: {
   }
   if (!base64) throw new Error('图片数据为空')
 
-  const resultDataUrl = await translateImage(base64, targetLanguage, model, apiKey)
+  const resultDataUrl = await translateImage(base64, targetLanguage, model, {
+    visionApiKey,
+    banana2ApiKey,
+    bananaProApiKey,
+  })
   return { jobId, resultDataUrl }
 }
 

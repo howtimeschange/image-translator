@@ -81,7 +81,10 @@ export interface PageImage {
 }
 
 export interface Settings {
-  apiKey: string          // 1xm.ai relay API key
+  // 1xm.ai 不同模型对应不同 API Key
+  visionApiKey: string      // gemini-3-flash-preview（识图分析）
+  banana2ApiKey: string     // gemini-3.1-flash-image-preview（Nano Banana 2 生图）
+  bananaProApiKey: string   // gemini-3-pro-image-preview（Nano Banana Pro 生图）
   defaultLanguage: Language
   defaultModel: ModelId
 }

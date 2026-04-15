@@ -87,8 +87,8 @@ export function App() {
 
   const translateSingle = useCallback(async () => {
     if (!singleImage) return
-    if (!settings.apiKey) {
-      setSingleError('请先在设置中配置 API Key')
+    if (!settings.banana2ApiKey && !settings.bananaProApiKey) {
+      setSingleError('请先在设置中配置 Nano Banana 的 API Key')
       return
     }
     setIsTranslatingSingle(true)
@@ -103,7 +103,9 @@ export function App() {
         imageBase64: singleImage.base64,
         targetLanguage,
         model: selectedModel,
-        apiKey: settings.apiKey,
+        visionApiKey: settings.visionApiKey,
+        banana2ApiKey: settings.banana2ApiKey,
+        bananaProApiKey: settings.bananaProApiKey,
         jobId: `single-${Date.now()}`,
       })
       if (resp?.error) throw new Error(resp.error)
@@ -113,15 +115,15 @@ export function App() {
     }
     setIsTranslatingSingle(false)
     setProgressMsg('')
-  }, [singleImage, settings.apiKey, targetLanguage, selectedModel])
+  }, [singleImage, settings, targetLanguage, selectedModel])
 
   // ── Batch translate ──────────────────────────────────────────────────────────
 
   const translateBatch = useCallback(async () => {
     const selected = pageImages.filter((img) => img.selected)
     if (!selected.length) return
-    if (!settings.apiKey) {
-      alert('请先在设置中配置 API Key')
+    if (!settings.banana2ApiKey && !settings.bananaProApiKey) {
+      alert('请先在设置中配置 Nano Banana 的 API Key')
       return
     }
 
@@ -140,14 +142,15 @@ export function App() {
       }
       addJob(job)
 
-      // Fire and forget, update as they complete
       chrome.runtime.sendMessage({
         type: 'TRANSLATE_IMAGE',
         imageUrl: img.src,
         imageBase64: img.base64 ?? null,
         targetLanguage,
         model: selectedModel,
-        apiKey: settings.apiKey,
+        visionApiKey: settings.visionApiKey,
+        banana2ApiKey: settings.banana2ApiKey,
+        bananaProApiKey: settings.bananaProApiKey,
         jobId,
       }).then((resp: any) => {
         if (resp?.error) {
@@ -159,7 +162,7 @@ export function App() {
         updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
       })
     }
-  }, [pageImages, settings.apiKey, targetLanguage, selectedModel])
+  }, [pageImages, settings, targetLanguage, selectedModel])
 
   // ── Tab switch side-effects ──────────────────────────────────────────────────
 
@@ -170,7 +173,7 @@ export function App() {
     }
   }
 
-  const noApiKey = !settings.apiKey
+  const noApiKey = !settings.banana2ApiKey && !settings.bananaProApiKey
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
