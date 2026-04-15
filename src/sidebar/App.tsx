@@ -30,24 +30,33 @@ export function App() {
   useEffect(() => {
     loadSettings()
 
-    // Listen for right-click triggered image from background
+    // Listen for messages from background
     const handler = (message: { type: string; url?: string; base64?: string | null }) => {
       if (message.type === 'OPEN_SIDEBAR_WITH_IMAGE' && message.url) {
+        // Sidebar just opened — show image preview immediately (base64 may still be loading)
         setSingleImage({ url: message.url, base64: message.base64 ?? null })
         setSingleResult(null)
         setSingleError(null)
         setActiveTab('single')
       }
+      if (message.type === 'IMAGE_BASE64_READY' && message.url) {
+        // base64 fetched asynchronously — update current image's base64 if URL matches
+        useAppStore.setState((state) => {
+          if (state.singleImage?.url === message.url) {
+            return { singleImage: { url: message.url, base64: message.base64 ?? null } }
+          }
+          return {}
+        })
+      }
     }
     chrome.runtime.onMessage.addListener(handler)
 
-    // Check for pending image (already stored by background before sidebar opened)
+    // Check for pending image (sidebar opened after background stored it)
     chrome.storage.local.get(['pendingImage']).then((data) => {
       if (data.pendingImage?.url) {
         const { url, base64 } = data.pendingImage
         setSingleImage({ url, base64: base64 ?? null })
         setActiveTab('single')
-        // Clear pending
         chrome.storage.local.remove(['pendingImage'])
       }
     })

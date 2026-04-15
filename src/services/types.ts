@@ -2,7 +2,10 @@
 // 共享类型定义
 
 export type Language =
-  | 'zh' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'pt' | 'ru' | 'ar' | 'th' | 'vi'
+  | 'zh' | 'zh-TW' | 'en' | 'ja' | 'ko'
+  | 'fr' | 'de' | 'es' | 'pt' | 'ru' | 'ar'
+  // 东南亚
+  | 'th' | 'vi' | 'id' | 'ms' | 'tl' | 'my' | 'km' | 'lo'
 
 export type ModelId = 'nano-banana-2' | 'nano-banana-pro'
 
@@ -30,6 +33,7 @@ export const MODELS: ModelConfig[] = [
 
 export const LANGUAGES: { code: Language; label: string; nativeName: string }[] = [
   { code: 'zh', label: '中文', nativeName: '简体中文' },
+  { code: 'zh-TW', label: '繁中', nativeName: '繁體中文' },
   { code: 'en', label: 'English', nativeName: 'English' },
   { code: 'ja', label: '日本語', nativeName: '日本語' },
   { code: 'ko', label: '한국어', nativeName: '한국어' },
@@ -39,8 +43,15 @@ export const LANGUAGES: { code: Language; label: string; nativeName: string }[] 
   { code: 'pt', label: 'Português', nativeName: 'Português' },
   { code: 'ru', label: 'Русский', nativeName: 'Русский' },
   { code: 'ar', label: 'العربية', nativeName: 'العربية' },
+  // 东南亚
   { code: 'th', label: 'ไทย', nativeName: 'ภาษาไทย' },
   { code: 'vi', label: 'Tiếng Việt', nativeName: 'Tiếng Việt' },
+  { code: 'id', label: 'Indonesia', nativeName: 'Bahasa Indonesia' },
+  { code: 'ms', label: 'Melayu', nativeName: 'Bahasa Melayu' },
+  { code: 'tl', label: 'Filipino', nativeName: 'Filipino (Tagalog)' },
+  { code: 'my', label: 'မြန်မာ', nativeName: 'မြန်မာဘာသာ' },
+  { code: 'km', label: 'ខ្មែរ', nativeName: 'ភាសាខ្មែរ' },
+  { code: 'lo', label: 'ລາວ', nativeName: 'ພາສາລາວ' },
 ]
 
 export const LANGUAGE_NAMES: Record<Language, string> = Object.fromEntries(
