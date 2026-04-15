@@ -9,11 +9,11 @@ import type { TranslationJob } from '../services/types'
 
 type Tab = 'single' | 'batch' | 'history' | 'settings'
 
-const TAB_CONFIG: { id: Tab; label: string; shortLabel: string }[] = [
-  { id: 'single',   label: '单图',   shortLabel: '01' },
-  { id: 'batch',    label: '批量',   shortLabel: '02' },
-  { id: 'history',  label: '结果',   shortLabel: '03' },
-  { id: 'settings', label: '设置',   shortLabel: '04' },
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'single',   label: '单图' },
+  { id: 'batch',    label: '批量' },
+  { id: 'history',  label: '结果' },
+  { id: 'settings', label: '设置' },
 ]
 
 export function App() {
@@ -96,7 +96,6 @@ export function App() {
     setSingleResult(null)
     setSingleError(null)
 
-    // 立即把 job 加入结果列表（状态 translating）
     const jobId = `single-${Date.now()}`
     const job: TranslationJob = {
       id: jobId,
@@ -181,7 +180,7 @@ export function App() {
     }
   }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel])
 
-  // ── Tab handler ───────────────────────────────────────────────────────────────
+  // ── Tab switch ────────────────────────────────────────────────────────────────
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab)
@@ -189,81 +188,50 @@ export function App() {
   }
 
   const noApiKey = !settings.banana2ApiKey && !settings.bananaProApiKey
+  const runningCount = jobs.filter(j => j.status === 'translating').length
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0c0c0e', overflow: 'hidden' }}>
 
       {/* ── Header ── */}
-      <div style={{
+      <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: 'var(--space-3) var(--space-4)',
-        borderBottom: '1px solid var(--border-subtle)',
+        padding: '10px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
         flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Logo mark */}
-          <div style={{
-            width: 28, height: 28,
-            borderRadius: 7,
-            background: 'oklch(0.78 0.16 75 / 0.15)',
-            border: '1px solid var(--border-accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 14,
-            flexShrink: 0,
-          }}>
-            ⟲
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, letterSpacing: '0.06em', color: 'var(--text-primary)' }}>
-              IMG<span style={{ color: 'var(--amber-400)' }}>TRANSLATE</span>
-            </div>
-            <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}>
-              NANO BANANA
-            </div>
-          </div>
-        </div>
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.12em',
+          textTransform: 'uppercase', color: 'rgba(255,255,255,0.28)',
+        }}>
+          ImageTranslator
+        </span>
 
-        {/* Jobs running badge */}
-        {jobs.filter(j => j.status === 'translating').length > 0 && (
+        {runningCount > 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 5,
-            padding: '3px 8px',
-            borderRadius: 12,
-            background: 'oklch(0.78 0.16 75 / 0.12)',
-            border: '1px solid var(--border-accent)',
-            fontSize: 10,
-            fontFamily: 'var(--font-display)',
-            color: 'var(--amber-400)',
-            letterSpacing: '0.04em',
+            fontSize: 10, color: 'rgba(255,255,255,0.35)',
           }}>
             <span className="spinner" style={{ width: 8, height: 8 }} />
-            {jobs.filter(j => j.status === 'translating').length} 进行中
+            {runningCount} 进行中
           </div>
         )}
-      </div>
+      </header>
 
       {/* ── No API Key warning ── */}
       {noApiKey && activeTab !== 'settings' && (
         <div style={{
-          margin: 'var(--space-3) var(--space-4) 0',
-          padding: 'var(--space-2) var(--space-3)',
-          background: 'oklch(0.78 0.16 75 / 0.08)',
-          border: '1px solid var(--border-accent)',
-          borderRadius: 'var(--r-sm)',
-          fontSize: 11,
-          color: 'var(--amber-400)',
-          fontFamily: 'var(--font-display)',
-          letterSpacing: '0.03em',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          padding: '8px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.04)',
+          background: 'rgba(255,255,255,0.02)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <span>未配置 API Key</span>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>未配置 API Key</span>
           <button
             onClick={() => setActiveTab('settings')}
-            style={{ color: 'var(--amber-300)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-display)', textDecoration: 'underline' }}
+            style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
           >
             前往设置
           </button>
@@ -271,98 +239,79 @@ export function App() {
       )}
 
       {/* ── Tabs ── */}
-      <div style={{
+      <nav style={{
         display: 'flex',
-        borderBottom: '1px solid var(--border-subtle)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
         flexShrink: 0,
       }}>
-        {TAB_CONFIG.map((tab) => {
+        {TABS.map((tab) => {
           const active = activeTab === tab.id
-          const pending = tab.id === 'history' && jobs.length > 0
+          const badgeCount = tab.id === 'history' ? jobs.length : 0
           return (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
               style={{
                 flex: 1,
-                padding: 'var(--space-2) 0',
+                padding: '9px 0',
                 background: 'none',
                 border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-                borderBottom: active ? '2px solid var(--amber-500)' : '2px solid transparent',
+                borderBottom: active ? '1px solid rgba(255,255,255,0.5)' : '1px solid transparent',
                 marginBottom: -1,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: 9,
-                letterSpacing: '0.12em',
-                color: active ? 'var(--amber-500)' : 'var(--text-disabled)',
-              }}>
-                {tab.shortLabel}
-              </div>
-              <div style={{
-                fontSize: 12,
+                cursor: 'pointer',
+                fontSize: 11,
                 fontWeight: active ? 600 : 400,
-                color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)',
+                transition: 'all 0.15s',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: 4,
-              }}>
-                {tab.label}
-                {pending && tab.id === 'history' && (
-                  <span style={{
-                    width: 14, height: 14,
-                    borderRadius: '50%',
-                    background: 'var(--amber-500)',
-                    color: 'var(--bg-base)',
-                    fontSize: 9,
-                    fontFamily: 'var(--font-display)',
-                    fontWeight: 700,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    {jobs.length}
-                  </span>
-                )}
-              </div>
+              }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.55)' }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+            >
+              {tab.label}
+              {badgeCount > 0 && (
+                <span style={{
+                  minWidth: 14, height: 14,
+                  borderRadius: 7,
+                  background: 'rgba(255,255,255,0.12)',
+                  color: 'rgba(255,255,255,0.5)',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 3px',
+                }}>
+                  {badgeCount}
+                </span>
+              )}
             </button>
           )
         })}
-      </div>
+      </nav>
 
       {/* ── Content ── */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
 
-        {/* ── Single image mode ── */}
+        {/* ── Single ── */}
         {activeTab === 'single' && (
-          <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {singleImage ? (
               <>
-                {/* Image preview */}
-                <div className="surface fade-up" style={{ padding: 'var(--space-3)' }}>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--font-display)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
-                    待翻译图片
-                  </div>
+                {/* Preview */}
+                <div style={{
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  background: '#000',
+                  flexShrink: 0,
+                }}>
                   <img
                     src={singleImage.url}
                     alt=""
-                    style={{
-                      width: '100%',
-                      maxHeight: 200,
-                      objectFit: 'contain',
-                      borderRadius: 'var(--r-sm)',
-                      background: 'var(--bg-overlay)',
-                      display: 'block',
-                    }}
+                    style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }}
                   />
-                  <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-disabled)', fontFamily: 'var(--font-display)', letterSpacing: '0.03em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {singleImage.url}
-                  </div>
                 </div>
 
                 <TranslateControls
@@ -373,43 +322,34 @@ export function App() {
 
                 {/* Result */}
                 {singleResult && (
-                  <div className="surface fade-up" style={{ padding: 'var(--space-3)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
-                      <div style={{ fontSize: 10, fontFamily: 'var(--font-display)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--green-500)' }}>
-                        翻译完成
-                      </div>
+                  <div className="fade-up">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ fontSize: 9, color: 'rgba(74,222,128,0.6)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>翻译完成</div>
                       <a
                         href={singleResult}
                         download="translated.png"
-                        style={{ fontSize: 11, color: 'var(--amber-400)', textDecoration: 'none', fontFamily: 'var(--font-display)' }}
+                        style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.65)')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.35)')}
                       >
                         ↓ 下载
                       </a>
                     </div>
-                    <img
-                      src={singleResult}
-                      alt="翻译结果"
-                      style={{
-                        width: '100%',
-                        maxHeight: 200,
-                        objectFit: 'contain',
-                        borderRadius: 'var(--r-sm)',
-                        background: 'var(--bg-overlay)',
-                        display: 'block',
-                      }}
-                    />
+                    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', background: '#000' }}>
+                      <img src={singleResult} alt="翻译结果" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }} />
+                    </div>
                   </div>
                 )}
 
                 {/* Error */}
                 {singleError && (
                   <div style={{
-                    background: 'var(--red-dim)',
-                    border: '1px solid oklch(0.65 0.22 27 / 0.25)',
-                    borderRadius: 'var(--r-sm)',
-                    padding: 'var(--space-3)',
-                    fontSize: 12,
-                    color: 'var(--red-500)',
+                    background: 'rgba(248,113,113,0.06)',
+                    border: '1px solid rgba(248,113,113,0.15)',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    fontSize: 11,
+                    color: 'rgba(248,113,113,0.8)',
                     lineHeight: 1.5,
                   }}>
                     {singleError}
@@ -420,25 +360,24 @@ export function App() {
               /* Empty state */
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', padding: 'var(--space-12) var(--space-4)',
-                gap: 'var(--space-4)', textAlign: 'center',
+                justifyContent: 'center', padding: '60px 16px',
+                gap: 12, textAlign: 'center',
               }}>
                 <div style={{
-                  width: 56, height: 56,
-                  borderRadius: 'var(--r-lg)',
-                  background: 'var(--bg-raised)',
-                  border: '1px dashed var(--border-default)',
+                  width: 44, height: 44,
+                  borderRadius: '50%',
+                  border: '1px solid rgba(255,255,255,0.07)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 24,
+                  fontSize: 18, opacity: 0.25,
                 }}>
                   ⟲
                 </div>
                 <div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--text-primary)', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
                     右键点击网页图片
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    选择「翻译此图片」触发<br />或切到批量模式扫描全页
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', lineHeight: 1.6 }}>
+                    选择「翻译此图片」<br />或切到批量模式扫描全页
                   </div>
                 </div>
               </div>
@@ -446,59 +385,64 @@ export function App() {
           </div>
         )}
 
-        {/* ── Batch mode ── */}
+        {/* ── Batch ── */}
         {activeTab === 'batch' && (
-          <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                页面图片
-              </div>
+              <div className="label-xs">页面图片</div>
               <button
                 onClick={scanImages}
                 disabled={isScanningImages}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  fontSize: 11, color: 'var(--amber-400)',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  fontSize: 11, color: 'rgba(255,255,255,0.35)',
                   background: 'none', border: 'none', cursor: isScanningImages ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-display)', letterSpacing: '0.04em',
                 }}
+                onMouseEnter={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+                onMouseLeave={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
               >
-                {isScanningImages ? <span className="spinner" style={{ width: 10, height: 10 }} /> : '↺'}
+                {isScanningImages ? <span className="spinner" style={{ width: 9, height: 9 }} /> : '↺'}
                 重新扫描
               </button>
             </div>
 
             {isScanningImages ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
-                {[1,2,3,4].map(i => <div key={i} className="shimmer" style={{ height: 100 }} />)}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {[1,2,3,4].map(i => <div key={i} className="shimmer" style={{ height: 90 }} />)}
               </div>
             ) : (
               <ImageGrid images={pageImages} />
             )}
 
             {pageImages.filter(i => i.selected).length > 0 && (
-              <div className="surface" style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', position: 'sticky', bottom: 0 }}>
+              <div style={{
+                borderTop: '1px solid rgba(255,255,255,0.06)',
+                paddingTop: 12,
+                display: 'flex', flexDirection: 'column', gap: 10,
+              }}>
                 <TranslateControls
                   onTranslate={translateBatch}
                   isTranslating={false}
                   disabled={noApiKey}
                 />
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}>
-                  翻译 {pageImages.filter(i => i.selected).length} 张图片 → 「结果」标签查看
-                </div>
+                <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', margin: 0 }}>
+                  翻译 {pageImages.filter(i => i.selected).length} 张 · 完成后查看「结果」
+                </p>
               </div>
             )}
           </div>
         )}
 
-        {/* ── History / Results ── */}
+        {/* ── History ── */}
         {activeTab === 'history' && (
-          <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <div style={{ padding: '0 16px' }}>
             {jobs.length > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ padding: '10px 0', display: 'flex', justifyContent: 'flex-end', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                 <button
                   onClick={clearJobs}
-                  style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}
+                  style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.25)')}
                 >
                   清空全部
                 </button>
@@ -507,13 +451,11 @@ export function App() {
             {jobs.length === 0 ? (
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', padding: 'var(--space-12) var(--space-4)',
-                gap: 'var(--space-3)', textAlign: 'center',
+                justifyContent: 'center', padding: '60px 16px',
+                gap: 10, textAlign: 'center',
               }}>
-                <div style={{ fontSize: 28, color: 'var(--text-disabled)' }}>◫</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
-                  暂无翻译记录
-                </div>
+                <span style={{ fontSize: 24, opacity: 0.15 }}>◫</span>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>暂无翻译记录</div>
               </div>
             ) : (
               jobs.map(job => <JobCard key={job.id} job={job} />)

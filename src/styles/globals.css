@@ -1,86 +1,20 @@
-/* ── globals.css ─────────────────────────────────────────────────────────────
-   Image Translator — Impeccable Design System
-   
-   Aesthetic: "Precision Instrument"
-   - Deep charcoal backgrounds (not pure black, tinted toward amber)
-   - Amber/gold accent (transformation, language, gold = value)
-   - Azeret Mono for headers (mechanical precision, non-standard)
-   - Figtree for body (geometric, clean, not overused)
-   - No glassmorphism as decoration
-   - No gradient text
-   - No border-left accent stripes
-   - OKLCH color system throughout
-*/
-
 @import url('https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-:root {
-  color-scheme: dark;
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
 
-  /* ── Brand Colors (OKLCH) ── */
-  --amber-500: oklch(0.78 0.16 75);
-  --amber-400: oklch(0.84 0.18 75);
-  --amber-300: oklch(0.90 0.14 75);
-  --amber-600: oklch(0.68 0.15 72);
-
-  /* ── Surfaces (tinted toward amber hue) ── */
-  --bg-base:    oklch(0.13 0.008 75);   /* deep charcoal, slight amber tint */
-  --bg-raised:  oklch(0.17 0.008 75);
-  --bg-overlay: oklch(0.21 0.007 75);
-  --bg-subtle:  oklch(0.24 0.007 75);
-
-  /* ── Borders ── */
-  --border-subtle:  oklch(0.32 0.006 75);
-  --border-default: oklch(0.38 0.006 75);
-  --border-accent:  oklch(0.68 0.15 72 / 0.4);
-
-  /* ── Text ── */
-  --text-primary:   oklch(0.95 0.005 75);
-  --text-secondary: oklch(0.70 0.008 75);
-  --text-muted:     oklch(0.50 0.006 75);
-  --text-disabled:  oklch(0.38 0.005 75);
-
-  /* ── Status ── */
-  --green-500: oklch(0.72 0.17 145);
-  --green-dim: oklch(0.72 0.17 145 / 0.12);
-  --red-500:   oklch(0.65 0.22 27);
-  --red-dim:   oklch(0.65 0.22 27 / 0.12);
-
-  /* ── Space scale (4pt) ── */
-  --space-1:  4px;
-  --space-2:  8px;
-  --space-3:  12px;
-  --space-4:  16px;
-  --space-6:  24px;
-  --space-8:  32px;
-  --space-12: 48px;
-
-  /* ── Typography ── */
-  --font-display: 'Azeret Mono', ui-monospace, monospace;
-  --font-body:    'Figtree', system-ui, sans-serif;
-
-  /* ── Radius ── */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
+html, body { width: 100%; height: 100%; overflow: hidden; }
 
 body {
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.55;
+  margin: 0; padding: 0;
+  background: #0c0c0e;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-size: 13px;
+  line-height: 1.5;
+  color-scheme: dark;
 }
 
 #root {
@@ -90,19 +24,86 @@ body {
   overflow: hidden;
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; }
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
 
-/* ── Focus ring ── */
-:focus-visible {
-  outline: 2px solid var(--amber-500);
-  outline-offset: 2px;
+/* ── Focus ─────────────────────────────────────────────────────────────────── */
+:focus-visible { outline: 1px solid rgba(255,255,255,0.25); outline-offset: 2px; }
+
+/* ── Label XS (section header) ─────────────────────────────────────────────── */
+.label-xs {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(113,113,122,1); /* zinc-500 */
 }
 
-/* ── Shimmer skeleton ── */
+/* ── Tag pill ──────────────────────────────────────────────────────────────── */
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.04);
+  color: rgba(161,161,170,1);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+/* ── Surface card ──────────────────────────────────────────────────────────── */
+.surface {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+}
+
+/* ── Select / Dropdown (language selector) ─────────────────────────────────── */
+.lang-select {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1;
+  min-width: 0;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.25)' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center;
+  padding: 6px 26px 6px 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lang-select:focus { border-color: rgba(255,255,255,0.18); }
+.lang-select option { background: #1a1a1e; color: rgba(255,255,255,0.8); }
+
+/* ── Input ─────────────────────────────────────────────────────────────────── */
+.settings-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.settings-input::placeholder { color: rgba(255,255,255,0.18); }
+.settings-input:focus { border-color: rgba(255,255,255,0.18); }
+
+/* ── Shimmer skeleton ──────────────────────────────────────────────────────── */
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -110,51 +111,49 @@ body {
 .shimmer {
   background: linear-gradient(
     90deg,
-    var(--bg-raised) 25%,
-    var(--bg-overlay) 50%,
-    var(--bg-raised) 75%
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.07) 50%,
+    rgba(255,255,255,0.04) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
-  border-radius: var(--r-sm);
+  border-radius: 6px;
 }
 
-/* ── Surface card ── */
-.surface {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--r-md);
-}
-
-/* ── Status dot ── */
-.status-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.status-dot.translating { background: var(--amber-500); animation: pulse-amber 1.2s ease-in-out infinite; }
-.status-dot.done  { background: var(--green-500); }
-.status-dot.error { background: var(--red-500); }
-
-@keyframes pulse-amber {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
-}
-
-/* ── Spin ── */
+/* ── Spinner ───────────────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
-  width: 14px; height: 14px;
-  border: 2px solid var(--border-default);
-  border-top-color: var(--amber-500);
+  width: 12px; height: 12px;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  border-top-color: rgba(255,255,255,0.55);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
+  display: inline-block;
 }
 
-/* ── Fade in ── */
+/* ── Dot pulse ─────────────────────────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.9); }
+  50%       { opacity: 0.8; transform: scale(1.1); }
+}
+
+/* ── Fade up ───────────────────────────────────────────────────────────────── */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(5px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fade-up { animation: fade-up 0.25s ease-out both; }
+.fade-up { animation: fade-up 0.2s ease-out both; }
+
+/* ── Status dot ────────────────────────────────────────────────────────────── */
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.translating {
+  background: rgba(255,255,255,0.45);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.status-dot.done  { background: rgba(74,222,128,0.75); }
+.status-dot.error { background: rgba(248,113,113,0.75); }

@@ -8,48 +8,60 @@ interface Props {
   disabled?: boolean
 }
 
-/** 语言按钮组件（复用于源/目标） */
-function LangButton({
-  code, label, zhNote, active, onClick
-}: { code: string; label: string; zhNote?: string; active: boolean; onClick: () => void }) {
+// 把 SOURCE_LANGUAGES 按组整理，方便 optgroup
+const SRC_GROUPS = [
+  { label: '自动', codes: ['auto'] },
+  { label: '亚洲', codes: ['zh', 'zh-TW', 'ja', 'ko'] },
+  { label: '欧洲', codes: ['en', 'fr', 'de', 'es', 'pt', 'ru'] },
+  { label: '中东', codes: ['ar'] },
+  { label: '东南亚', codes: ['th', 'vi', 'id', 'ms', 'tl', 'my', 'km', 'lo'] },
+]
+
+const TGT_GROUPS = [
+  { label: '亚洲', codes: ['zh', 'zh-TW', 'ja', 'ko'] },
+  { label: '欧洲', codes: ['en', 'fr', 'de', 'es', 'pt', 'ru'] },
+  { label: '中东', codes: ['ar'] },
+  { label: '东南亚', codes: ['th', 'vi', 'id', 'ms', 'tl', 'my', 'km', 'lo'] },
+]
+
+const byCode = Object.fromEntries(
+  [...SOURCE_LANGUAGES].map(l => [l.code, l])
+)
+
+function LangSelect({
+  value,
+  onChange,
+  groups,
+}: {
+  value: string
+  onChange: (v: string) => void
+  groups: { label: string; codes: string[] }[]
+}) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '3px 9px',
-        borderRadius: 'var(--r-sm)',
-        border: active ? '1px solid var(--amber-600)' : '1px solid var(--border-subtle)',
-        background: active ? 'oklch(0.78 0.16 75 / 0.15)' : 'transparent',
-        color: active ? 'var(--amber-400)' : 'var(--text-secondary)',
-        fontSize: 12,
-        fontFamily: 'var(--font-body)',
-        fontWeight: active ? 600 : 400,
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        lineHeight: 1.8,
-        whiteSpace: 'nowrap',
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 3,
-      }}
+    <select
+      className="lang-select"
+      value={value}
+      onChange={e => onChange(e.target.value)}
     >
-      <span>{label}</span>
-      {zhNote && (
-        <span style={{ fontSize: 9, opacity: active ? 0.75 : 0.55 }}>{zhNote}</span>
-      )}
-    </button>
+      {groups.map(group => (
+        <optgroup key={group.label} label={group.label}>
+          {group.codes.map(code => {
+            const lang = byCode[code]
+            if (!lang) return null
+            const display = code === 'auto'
+              ? '自动检测'
+              : `${lang.label}${lang.zhNote ? `（${lang.zhNote}）` : ''}`
+            return <option key={code} value={code}>{display}</option>
+          })}
+        </optgroup>
+      ))}
+    </select>
   )
 }
 
-/** 区块标签 */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{
-      fontSize: 10, fontFamily: 'var(--font-display)', letterSpacing: '0.09em',
-      color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 'var(--space-2)',
-    }}>
-      {children}
-    </div>
+    <div className="label-xs" style={{ marginBottom: 6 }}>{children}</div>
   )
 }
 
@@ -61,74 +73,69 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
   } = useAppStore()
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* ── 源语言 ── */}
+      {/* ── 语言选择：左右布局 ── */}
       <div>
-        <SectionLabel>原图语言</SectionLabel>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
-          {SOURCE_LANGUAGES.map((lang) => (
-            <LangButton
-              key={lang.code}
-              code={lang.code}
-              label={lang.code === 'auto' ? '自动检测' : lang.label}
-              zhNote={lang.code === 'auto' ? undefined : lang.zhNote}
-              active={sourceLanguage === lang.code}
-              onClick={() => setSourceLanguage(lang.code)}
-            />
-          ))}
-        </div>
-      </div>
+        <SectionLabel>翻译方向</SectionLabel>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* 源语言 */}
+          <LangSelect
+            value={sourceLanguage}
+            onChange={v => setSourceLanguage(v as any)}
+            groups={SRC_GROUPS}
+          />
 
-      {/* Arrow */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-        <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-        <span style={{ fontSize: 14, color: 'var(--amber-500)', lineHeight: 1 }}>↓</span>
-        <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
-      </div>
+          {/* 箭头 */}
+          <span style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.2)',
+            flexShrink: 0,
+            lineHeight: 1,
+            userSelect: 'none',
+          }}>→</span>
 
-      {/* ── 目标语言 ── */}
-      <div>
-        <SectionLabel>翻译为</SectionLabel>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
-          {TARGET_LANGUAGES.map((lang) => (
-            <LangButton
-              key={lang.code}
-              code={lang.code}
-              label={lang.label}
-              zhNote={lang.zhNote}
-              active={targetLanguage === lang.code}
-              onClick={() => setTargetLanguage(lang.code)}
-            />
-          ))}
+          {/* 目标语言 */}
+          <LangSelect
+            value={targetLanguage}
+            onChange={v => setTargetLanguage(v as any)}
+            groups={TGT_GROUPS}
+          />
         </div>
       </div>
 
       {/* ── 模型选择 ── */}
       <div>
         <SectionLabel>翻译模型</SectionLabel>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
-          {MODELS.map((m) => {
+        <div style={{ display: 'flex', gap: 6 }}>
+          {MODELS.map(m => {
             const active = selectedModel === m.id
             return (
               <button
                 key={m.id}
                 onClick={() => setSelectedModel(m.id)}
                 style={{
-                  padding: 'var(--space-2) var(--space-3)',
-                  borderRadius: 'var(--r-sm)',
-                  border: active ? '1px solid var(--amber-600)' : '1px solid var(--border-subtle)',
-                  background: active ? 'oklch(0.78 0.16 75 / 0.12)' : 'var(--bg-raised)',
-                  color: active ? 'var(--amber-400)' : 'var(--text-secondary)',
-                  fontSize: 12,
+                  flex: 1,
+                  padding: '7px 10px',
+                  borderRadius: 7,
+                  border: active
+                    ? '1px solid rgba(255,255,255,0.2)'
+                    : '1px solid rgba(255,255,255,0.07)',
+                  background: active
+                    ? 'rgba(255,255,255,0.08)'
+                    : 'rgba(255,255,255,0.025)',
+                  color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)',
+                  fontSize: 11,
                   fontWeight: active ? 600 : 400,
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
+                  transition: 'all 0.15s',
                   textAlign: 'left',
                 }}
               >
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 11 }}>{m.name}</div>
-                <div style={{ fontSize: 10, color: active ? 'oklch(0.84 0.18 75 / 0.7)' : 'var(--text-muted)', marginTop: 1 }}>{m.description}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.01em' }}>{m.name}</div>
+                <div style={{ fontSize: 10, color: active ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.2)', marginTop: 2 }}>
+                  {m.description}
+                </div>
               </button>
             )
           })}
@@ -143,20 +150,33 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 8,
-          padding: '10px var(--space-4)',
-          borderRadius: 'var(--r-md)',
-          border: disabled || isTranslating ? '1px solid var(--border-subtle)' : '1px solid var(--amber-600)',
+          gap: 7,
+          padding: '9px 16px',
+          borderRadius: 8,
+          border: disabled || isTranslating
+            ? '1px solid rgba(255,255,255,0.07)'
+            : '1px solid rgba(255,255,255,0.14)',
           background: disabled || isTranslating
-            ? 'var(--bg-raised)'
-            : 'oklch(0.78 0.16 75 / 0.18)',
-          color: disabled || isTranslating ? 'var(--text-disabled)' : 'var(--amber-400)',
-          fontSize: 13,
-          fontFamily: 'var(--font-display)',
+            ? 'rgba(255,255,255,0.03)'
+            : 'rgba(255,255,255,0.08)',
+          color: disabled || isTranslating ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.8)',
+          fontSize: 12,
           fontWeight: 600,
-          letterSpacing: '0.04em',
+          letterSpacing: '0.03em',
           cursor: disabled || isTranslating ? 'not-allowed' : 'pointer',
-          transition: 'all 0.15s ease',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={e => {
+          if (!disabled && !isTranslating) {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.11)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'
+          }
+        }}
+        onMouseLeave={e => {
+          if (!disabled && !isTranslating) {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'
+          }
         }}
       >
         {isTranslating ? (
@@ -166,7 +186,7 @@ export function TranslateControls({ onTranslate, isTranslating, disabled }: Prop
           </>
         ) : (
           <>
-            <span style={{ fontSize: 14 }}>⟲</span>
+            <span style={{ opacity: 0.6 }}>⟲</span>
             开始翻译
           </>
         )}
