@@ -1,0 +1,90 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package zip
+        run: |
+          cd dist
+          zip -r ../image-translator.zip .
+          cd ..
+          echo "ZIP_NAME=image-translator-$(git describe --tags --always --dirty).zip" >> $GITHUB_ENV
+          mv image-translator.zip "image-translator-$(git describe --tags --always --dirty).zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: image-translator-*.zip
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package zip
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          cd dist
+          zip -r "../image-translator-${VERSION}.zip" .
+          cd ..
+          echo "ZIP_PATH=image-translator-${VERSION}.zip" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Image Translator ${{ env.VERSION }}
+          body: |
+            ## 安装方式
+            1. 下载下方 `image-translator-${{ env.VERSION }}.zip`
+            2. 解压
+            3. 打开 Chrome `chrome://extensions/` → 开启开发者模式
+            4. 点「加载已解压的扩展程序」→ 选解压目录
+
+            ## 更新内容
+            见 [README](https://github.com/${{ github.repository }}/blob/main/README.md)
+          files: ${{ env.ZIP_PATH }}
+          draft: false
+          prerelease: false
