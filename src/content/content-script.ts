@@ -249,11 +249,20 @@ let pinnedSrcSet = new Set<string>()
 
 // ── 消息监听 ─────────────────────────────────────────────────────────────────
 
+/** 深度扫描是否正在进行（防止并发重入） */
+let scanInProgress = false
+
 chrome.runtime.onMessage.addListener((message: ChromeMessage, _sender, sendResponse) => {
   if (message.type === 'SCAN_PAGE_IMAGES' || message.type === 'DEEP_SCAN_PAGE_IMAGES') {
+    if (scanInProgress) {
+      // 已有扫描在进行中，返回空结果，不触发第二次
+      sendResponse({ images: [], busy: true })
+      return false
+    }
+    scanInProgress = true
     deepScanPageImages()
-      .then((images) => sendResponse({ images }))
-      .catch(() => sendResponse({ images: [] }))
+      .then((images) => { scanInProgress = false; sendResponse({ images }) })
+      .catch(() => { scanInProgress = false; sendResponse({ images: [] }) })
     return true
   }
 
@@ -302,16 +311,21 @@ async function deepScanPageImages(): Promise<PageImageInfo[]> {
 
   const bestBySrc = new Map<string, CandidateSource>()
 
+  // 先采集一次当前视口
   collectDocumentCandidates(bestBySrc, rule)
 
-  for (const y of checkpoints) {
-    window.scrollTo({ left: originalX, top: y, behavior: 'auto' })
-    await sleep(200)
-    collectDocumentCandidates(bestBySrc, rule)
+  try {
+    for (const y of checkpoints) {
+      window.scrollTo({ left: originalX, top: y, behavior: 'auto' })
+      await sleep(180)
+      collectDocumentCandidates(bestBySrc, rule)
+    }
+  } finally {
+    // 无论是否出错，都还原滚动位置
+    window.scrollTo({ left: originalX, top: originalY, behavior: 'auto' })
   }
 
-  window.scrollTo({ left: originalX, top: originalY, behavior: 'auto' })
-  await sleep(80)
+  await sleep(60)
   collectDocumentCandidates(bestBySrc, rule)
 
   return Array.from(bestBySrc.values())

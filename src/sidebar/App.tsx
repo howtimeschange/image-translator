@@ -156,6 +156,7 @@ export function App() {
   // ── Scan ─────────────────────────────────────────────────────────────────────
 
   const scanImages = useCallback(async () => {
+    if (isScanningImages) return   // 防重入：正在扫描时忽略第二次点击
     setIsScanningImages(true)
     // 每次扫描前先刷新 tabId
     let tabId = activeTabId
@@ -171,6 +172,12 @@ export function App() {
         chrome.runtime.sendMessage({ type: 'DEEP_SCAN_PAGE_IMAGES', tabId }),
         chrome.runtime.sendMessage({ type: 'GET_PINNED_IMAGES' }),
       ])
+
+      // 如果 content script 正在扫描（busy），直接保留已有图片
+      if (scanResp?.busy) {
+        setIsScanningImages(false)
+        return
+      }
 
       const scannedImages = (scanResp?.images ?? []).map((img: any, i: number) => ({
         ...img,
@@ -192,7 +199,7 @@ export function App() {
       setPageImages(mergeImages(pinnedImages, []))
     }
     setIsScanningImages(false)
-  }, [activeTabId, pinnedImages, setPageImages, setPinnedImages])
+  }, [activeTabId, isScanningImages, pinnedImages, setPageImages, setPinnedImages])
 
   // ── 获取图片 base64（优先从 content-script 获取，绕过 CORS） ─────────────────
   const getImageBase64 = useCallback(async (url: string, existingBase64?: string | null): Promise<string | null> => {
@@ -642,7 +649,7 @@ export function App() {
                   onMouseLeave={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
                 >
                   {isScanningImages ? <span className="spinner" style={{ width: 9, height: 9 }} /> : '↺'}
-                  深度扫描
+                  识别整页图片
                 </button>
               </div>
             </div>

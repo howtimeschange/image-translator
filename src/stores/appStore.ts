@@ -12,6 +12,53 @@ const DEFAULT_SETTINGS: Settings = {
   preserveBrand: true,
 }
 
+// ── storage key helpers ───────────────────────────────────────────────────────
+
+const JOBS_META_KEY = 'jobs_meta'       // string[] — ordered job id list
+const jobDataKey = (id: string) => `job_${id}` // per-job storage key
+
+/** 从 storage 加载全部 jobs（按 jobs_meta 顺序）*/
+async function loadJobsFromStorage(): Promise<TranslationJob[]> {
+  const meta = await chrome.storage.local.get([JOBS_META_KEY])
+  const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
+  if (!ids.length) return []
+  const keys = ids.map(jobDataKey)
+  const data = await chrome.storage.local.get(keys)
+  return ids
+    .map((id) => data[jobDataKey(id)] as TranslationJob | undefined)
+    .filter((j): j is TranslationJob => !!j)
+}
+
+/** 持久化单条 job（追加到 meta 列表头部） */
+async function persistJob(job: TranslationJob): Promise<void> {
+  const meta = await chrome.storage.local.get([JOBS_META_KEY])
+  const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
+  const nextIds = [job.id, ...ids.filter((id) => id !== job.id)]
+  await chrome.storage.local.set({
+    [JOBS_META_KEY]: nextIds,
+    [jobDataKey(job.id)]: job,
+  })
+}
+
+/** 更新单条 job */
+async function updateJobInStorage(id: string, patch: Partial<TranslationJob>): Promise<void> {
+  const key = jobDataKey(id)
+  const data = await chrome.storage.local.get([key])
+  const existing = data[key] as TranslationJob | undefined
+  if (!existing) return
+  await chrome.storage.local.set({ [key]: { ...existing, ...patch } })
+}
+
+/** 清空所有 jobs */
+async function clearJobsInStorage(): Promise<void> {
+  const meta = await chrome.storage.local.get([JOBS_META_KEY])
+  const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
+  const keysToRemove = [JOBS_META_KEY, ...ids.map(jobDataKey)]
+  await chrome.storage.local.remove(keysToRemove)
+}
+
+// ── AppState ──────────────────────────────────────────────────────────────────
+
 interface AppState {
   // Settings
   settings: Settings
@@ -73,6 +120,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (Array.isArray(data.pinnedImages)) {
       set({ pinnedImages: data.pinnedImages })
     }
+    // 加载持久化的 jobs
+    try {
+      const jobs = await loadJobsFromStorage()
+      if (jobs.length) set({ jobs })
+    } catch {}
   },
 
   saveSettings: async () => {
@@ -123,12 +175,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
 
   jobs: [],
-  addJob: (job) => set((state) => ({ jobs: [job, ...state.jobs] })),
-  updateJob: (id, patch) =>
+  addJob: (job) => {
+    set((state) => ({ jobs: [job, ...state.jobs] }))
+    persistJob(job).catch(() => {})
+  },
+  updateJob: (id, patch) => {
     set((state) => ({
       jobs: state.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)),
-    })),
-  clearJobs: () => set({ jobs: [] }),
+    }))
+    updateJobInStorage(id, patch).catch(() => {})
+  },
+  clearJobs: () => {
+    set({ jobs: [] })
+    clearJobsInStorage().catch(() => {})
+  },
 
   targetLanguage: 'zh',
   setTargetLanguage: (l) => set({ targetLanguage: l }),
@@ -139,4 +199,3 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedModel: 'nano-banana-2',
   setSelectedModel: (m) => set({ selectedModel: m }),
 }))
-
