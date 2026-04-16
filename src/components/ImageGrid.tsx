@@ -152,9 +152,9 @@ export function ImageGrid({ images, onRemovePin }: Props) {
     return (
       <div style={{ textAlign: 'center', padding: '48px 16px', color: 'rgba(255,255,255,0.2)' }}>
         <div style={{ fontSize: 24, marginBottom: 10, opacity: 0.4 }}>◻</div>
-        <div style={{ fontSize: 12 }}>未发现可翻译图片</div>
+        <div style={{ fontSize: 12 }}>暂未识别到图片</div>
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.15)', marginTop: 4 }}>
-          可点「深度扫描」，或在网页上 📌 Pin 指定图片
+          点「识别整页图片」自动扫描，或在网页上 📌 Pin 指定图片
         </div>
       </div>
     )

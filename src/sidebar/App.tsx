@@ -386,7 +386,11 @@ export function App() {
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab)
-    if (tab === 'batch' && pageImages.length === 0) scanImages()
+    // 切到批量 tab 时，只在确实没有任何图片且已拿到正确 tabId 时才自动扫描
+    // 避免 tabId 未就绪时扫到错误页面
+    if (tab === 'batch' && pageImages.length === 0 && activeTabId) {
+      scanImages()
+    }
   }
 
   const noApiKey = !settings.banana2ApiKey && !settings.bananaProApiKey

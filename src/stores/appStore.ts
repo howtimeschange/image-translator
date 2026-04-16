@@ -20,17 +20,23 @@ const IDB_NAME = 'image-translator'
 const IDB_STORE = 'job-results'
 const IDB_VERSION = 1
 
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, IDB_VERSION)
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+// 单例：只打开一次 DB，所有操作复用同一个连接
+let _dbPromise: Promise<IDBDatabase> | null = null
+
+function getDb(): Promise<IDBDatabase> {
+  if (!_dbPromise) {
+    _dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION)
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => { _dbPromise = null; reject(req.error) }
+    })
+  }
+  return _dbPromise
 }
 
 async function idbSet(key: string, value: string): Promise<void> {
-  const db = await openIdb()
+  const db = await getDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite')
     tx.objectStore(IDB_STORE).put(value, key)
@@ -40,7 +46,7 @@ async function idbSet(key: string, value: string): Promise<void> {
 }
 
 async function idbGet(key: string): Promise<string | undefined> {
-  const db = await openIdb()
+  const db = await getDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly')
     const req = tx.objectStore(IDB_STORE).get(key)
@@ -51,7 +57,7 @@ async function idbGet(key: string): Promise<string | undefined> {
 
 async function idbGetMany(keys: string[]): Promise<Record<string, string>> {
   if (!keys.length) return {}
-  const db = await openIdb()
+  const db = await getDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly')
     const store = tx.objectStore(IDB_STORE)
@@ -71,7 +77,7 @@ async function idbGetMany(keys: string[]): Promise<Record<string, string>> {
 
 async function idbDeleteMany(keys: string[]): Promise<void> {
   if (!keys.length) return
-  const db = await openIdb()
+  const db = await getDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite')
     for (const k of keys) tx.objectStore(IDB_STORE).delete(k)
@@ -138,23 +144,24 @@ async function persistJob(job: TranslationJob): Promise<void> {
   }
 }
 
-/** 更新单条 job：元数据到 storage.local，resultDataUrl 到 IDB */
+/** 更新单条 job：元数据到 storage.local，resultDataUrl 到 IDB
+ *  注意：直接覆盖写，不做 get-then-merge（避免并发竞态） */
 async function updateJobInStorage(id: string, patch: Partial<TranslationJob>): Promise<void> {
   const { resultDataUrl, ...metaPatch } = patch
 
-  // 更新元数据
-  if (Object.keys(metaPatch).length) {
-    const key = jobDataKey(id)
-    const data = await chrome.storage.local.get([key])
-    const existing = data[key] as TranslationJob | undefined
-    if (existing) {
-      await chrome.storage.local.set({ [key]: { ...existing, ...metaPatch } })
-    }
-  }
-
-  // 更新图片
+  // 图片单独存 IDB（最重要，先写）
   if (resultDataUrl) {
     await idbSet(jobImgKey(id), resultDataUrl).catch(() => {})
+  }
+
+  // 元数据：读现有值 merge 后写回
+  if (Object.keys(metaPatch).length > 0) {
+    const key = jobDataKey(id)
+    try {
+      const data = await chrome.storage.local.get([key])
+      const existing = (data[key] ?? {}) as Partial<TranslationJob>
+      await chrome.storage.local.set({ [key]: { ...existing, ...metaPatch } })
+    } catch {}
   }
 }
 
