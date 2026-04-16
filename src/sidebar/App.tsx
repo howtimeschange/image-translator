@@ -201,24 +201,107 @@ export function App() {
     setIsScanningImages(false)
   }, [activeTabId, isScanningImages, pinnedImages, setPageImages, setPinnedImages])
 
-  // ── 获取图片 base64（优先从 content-script 获取，绕过 CORS） ─────────────────
+  // ── 获取图片 base64（优先从 content-script 获取，绕过 CORS，含超时保护） ──────
   const getImageBase64 = useCallback(async (url: string, existingBase64?: string | null): Promise<string | null> => {
     if (existingBase64) return existingBase64
     if (!url) return null
-    // 先尝试从 content-script 获取（可绕过 CORS）
+    // 先尝试从 content-script 获取（可绕过 CORS），加 5s 超时
     if (activeTabId) {
       try {
-        const resp = await chrome.runtime.sendMessage({
-          type: 'RELAY_TO_TAB',
-          tabId: activeTabId,
-          payload: { type: 'FETCH_IMAGE_BASE64', url },
-        })
-        if (resp?.base64) return resp.base64 as string
+        const result = await Promise.race([
+          chrome.runtime.sendMessage({
+            type: 'RELAY_TO_TAB',
+            tabId: activeTabId,
+            payload: { type: 'FETCH_IMAGE_BASE64', url },
+          }),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ])
+        if ((result as any)?.base64) return (result as any).base64 as string
       } catch {}
     }
     // fallback：侧边栏直接 fetch
     try { return await fetchImageBase64(url) } catch { return null }
   }, [activeTabId])
+
+  // ── 核心：执行单条 job 翻译（可被批量循环和手动重试共用） ─────────────────────
+  const runJobTranslation = useCallback(async (job: TranslationJob): Promise<void> => {
+    const currentSettings = useAppStore.getState().settings
+    const base64 = await getImageBase64(job.imageUrl, job.imageBase64)
+    if (!base64) throw new Error('无法获取图片数据，请检查图片是否可访问')
+    const result = await translateImage(
+      base64,
+      job.sourceLanguage,
+      job.targetLanguage,
+      job.model,
+      {
+        visionApiKey: currentSettings.visionApiKey,
+        banana2ApiKey: currentSettings.banana2ApiKey,
+        bananaProApiKey: currentSettings.bananaProApiKey,
+      },
+      job.preserveBrand ?? true,
+    )
+    updateJob(job.id, {
+      status: 'done',
+      resultDataUrl: result.resultDataUrl,
+      ocrTexts: result.ocrTexts,
+      keepCount: result.keepCount,
+      translateCount: result.translateCount,
+    })
+  }, [getImageBase64, updateJob])
+
+  // ── 带指数退避的重试包装（最多 maxRetries 次，含 429 特殊处理） ────────────────
+  const runWithRetry = useCallback(async (
+    job: TranslationJob,
+    maxRetries = 3,
+  ): Promise<void> => {
+    let lastErr: Error | null = null
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          updateJob(job.id, { status: 'translating', error: undefined })
+        }
+        await runJobTranslation(job)
+        return  // 成功
+      } catch (e: any) {
+        lastErr = e
+        const msg: string = e?.message ?? ''
+
+        // 429：解析 retry-after，优先等够再重试
+        const retryMatch = msg.match(/retry[_\s]?in\s+(\d+(?:\.\d+)?)\s*s/i)
+          ?? msg.match(/(\d+(?:\.\d+)?)\s*s.*retry/i)
+          ?? (msg.includes('429') ? ['', '15'] : null)
+
+        if (retryMatch) {
+          const baseWait = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 500
+          // 指数退避：每次翻倍，但最多等 60s
+          const waitMs = Math.min(baseWait * Math.pow(2, attempt), 60000)
+          updateJob(job.id, {
+            status: 'error',
+            error: `配额限制，${Math.ceil(waitMs / 1000)}s 后自动重试 (${attempt + 1}/${maxRetries})…`,
+          })
+          await new Promise(res => setTimeout(res, waitMs))
+        } else if (attempt < maxRetries - 1) {
+          // 其他错误：短暂等待后重试
+          const waitMs = 2000 * (attempt + 1)
+          updateJob(job.id, {
+            status: 'error',
+            error: `翻译失败，${Math.ceil(waitMs / 1000)}s 后重试 (${attempt + 1}/${maxRetries})…`,
+          })
+          await new Promise(res => setTimeout(res, waitMs))
+        }
+      }
+    }
+    // 全部重试失败
+    updateJob(job.id, { status: 'error', error: lastErr?.message ?? '翻译失败，请手动重试' })
+  }, [runJobTranslation, updateJob])
+
+  // ── 手动重试单条 job ──────────────────────────────────────────────────────────
+  const retryJob = useCallback(async (jobId: string) => {
+    const job = useAppStore.getState().jobs.find(j => j.id === jobId)
+    if (!job) return
+    updateJob(jobId, { status: 'translating', error: undefined })
+    await runWithRetry({ ...job, status: 'translating' }, 3)
+  }, [runWithRetry, updateJob])
 
   // ── Single translate ──────────────────────────────────────────────────────────
 
@@ -247,37 +330,20 @@ export function App() {
     addJob(job)
 
     try {
-      // 直接在侧边栏页面调用翻译（避免 service-worker 被挂起）
-      const base64 = await getImageBase64(singleImage.url, singleImage.base64)
-      if (!base64) throw new Error('无法获取图片数据，请检查图片是否可访问')
-
-      const result = await translateImage(
-        base64,
-        sourceLanguage,
-        targetLanguage,
-        selectedModel,
-        {
-          visionApiKey: settings.visionApiKey,
-          banana2ApiKey: settings.banana2ApiKey,
-          bananaProApiKey: settings.bananaProApiKey,
-        },
-        settings.preserveBrand,
-      )
-      setSingleResult(result.resultDataUrl)
-      updateJob(jobId, {
-        status: 'done',
-        resultDataUrl: result.resultDataUrl,
-        ocrTexts: result.ocrTexts,
-        keepCount: result.keepCount,
-        translateCount: result.translateCount,
-      })
+      await runWithRetry(job, 3)
+      const done = useAppStore.getState().jobs.find(j => j.id === jobId)
+      if (done?.status === 'done' && done.resultDataUrl) {
+        setSingleResult(done.resultDataUrl)
+      } else {
+        setSingleError(done?.error ?? '翻译失败，请重试')
+      }
     } catch (e: any) {
       const errMsg = e?.message ?? '翻译失败，请重试'
       setSingleError(errMsg)
       updateJob(jobId, { status: 'error', error: errMsg })
     }
     setIsTranslatingSingle(false)
-  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, getImageBase64])
+  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, runWithRetry])
 
   // ── Batch translate ───────────────────────────────────────────────────────────
 
@@ -292,7 +358,7 @@ export function App() {
 
     const batchBase = Date.now()
 
-    // 先全部创建 translating 状态
+    // 先全部创建 pending 状态
     const jobs_: TranslationJob[] = selected.map((img, i) => ({
       id: `job-${batchBase}-${i}-${img.id.slice(0, 6)}`,
       imageUrl: img.src,
@@ -306,70 +372,15 @@ export function App() {
     }))
     for (const j of jobs_) addJob(j)
 
-    // 顺序执行翻译（避免并发超配额）
-    for (let i = 0; i < selected.length; i++) {
-      const img = selected[i]
-      const jobId = jobs_[i].id
-
-      const doTranslate = async (): Promise<void> => {
-        // 获取图片 base64
-        const base64 = await getImageBase64(img.src, img.base64)
-        if (!base64) throw new Error('无法获取图片数据，请检查图片是否可访问')
-
-        // 直接在侧边栏页面调用翻译（避免 service-worker 被挂起）
-        const result = await translateImage(
-          base64,
-          sourceLanguage,
-          targetLanguage,
-          selectedModel,
-          {
-            visionApiKey: settings.visionApiKey,
-            banana2ApiKey: settings.banana2ApiKey,
-            bananaProApiKey: settings.bananaProApiKey,
-          },
-          settings.preserveBrand,
-        )
-        updateJob(jobId, {
-          status: 'done',
-          resultDataUrl: result.resultDataUrl,
-          ocrTexts: result.ocrTexts,
-          keepCount: result.keepCount,
-          translateCount: result.translateCount,
-        })
-      }
-
-      try {
-        await doTranslate()
-      } catch (e: any) {
-        const msg: string = e?.message ?? '翻译失败'
-        // 429 自动重试
-        const retryMatch = msg.match(/retry[_\s]?in\s+(\d+(?:\.\d+)?)\s*s/i)
-          ?? msg.match(/(\d+(?:\.\d+)?)\s*s.*retry/i)
-          ?? (msg.includes('429') ? ['', '10'] : null)
-        if (retryMatch) {
-          const waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 800
-          updateJob(jobId, {
-            status: 'error',
-            error: `配额限制，${Math.ceil(waitMs / 1000)}s 后自动重试…`,
-          })
-          await new Promise(res => setTimeout(res, waitMs))
-          updateJob(jobId, { status: 'translating', error: undefined })
-          try {
-            await doTranslate()
-          } catch (e2: any) {
-            updateJob(jobId, { status: 'error', error: e2?.message ?? '重试失败' })
-          }
-        } else {
-          updateJob(jobId, { status: 'error', error: msg })
-        }
-      }
-
-      // 每张之间间隔 300ms，减少 429 概率
-      if (i < selected.length - 1) {
-        await new Promise(res => setTimeout(res, 300))
+    // 顺序执行，每条最多 3 次重试
+    for (let i = 0; i < jobs_.length; i++) {
+      await runWithRetry(jobs_[i], 3)
+      // 每张之间间隔 400ms，减少 429 概率
+      if (i < jobs_.length - 1) {
+        await new Promise(res => setTimeout(res, 400))
       }
     }
-  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, setActiveTab, getImageBase64])
+  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel, addJob, setActiveTab, runWithRetry])
 
   // ── Tab switch ────────────────────────────────────────────────────────────────
 
@@ -705,7 +716,7 @@ export function App() {
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>暂无翻译记录</div>
               </div>
             ) : (
-              jobs.map(job => <JobCard key={job.id} job={job} />)
+              jobs.map(job => <JobCard key={job.id} job={job} onRetry={retryJob} />)
             )}
           </div>
         )}

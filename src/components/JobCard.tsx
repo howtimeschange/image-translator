@@ -4,10 +4,14 @@ import type { TranslationJob } from '../services/types'
 import { LANGUAGE_NAMES } from '../services/types'
 import { ImageLightbox } from './ImageLightbox'
 
-interface Props { job: TranslationJob }
+interface Props {
+  job: TranslationJob
+  onRetry?: (jobId: string) => void
+}
 
-export function JobCard({ job }: Props) {
+export function JobCard({ job, onRetry }: Props) {
   const [lightbox, setLightbox] = useState<{ src: string; label: string; name?: string } | null>(null)
+  const [retrying, setRetrying] = useState(false)
 
   const handleDownload = () => {
     if (!job.resultDataUrl) return
@@ -15,6 +19,13 @@ export function JobCard({ job }: Props) {
     a.href = job.resultDataUrl
     a.download = `translated-${job.targetLanguage}-${job.id.slice(0, 8)}.png`
     a.click()
+  }
+
+  const handleRetry = async () => {
+    if (!onRetry || retrying) return
+    setRetrying(true)
+    await onRetry(job.id)
+    setRetrying(false)
   }
 
   const targetName = LANGUAGE_NAMES[job.targetLanguage] ?? job.targetLanguage
@@ -112,7 +123,6 @@ export function JobCard({ job }: Props) {
                     onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
                     onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
                   />
-                  {/* 放大提示 */}
                   <div style={{
                     position: 'absolute', inset: 0,
                     borderRadius: 6,
@@ -145,11 +155,35 @@ export function JobCard({ job }: Props) {
             border: '1px solid rgba(248,113,113,0.15)',
             borderRadius: 6,
             padding: '8px 10px',
-            fontSize: 11,
-            color: 'rgba(248,113,113,0.8)',
-            lineHeight: 1.5,
           }}>
-            {job.error ?? '翻译失败，请重试'}
+            <div style={{ fontSize: 11, color: 'rgba(248,113,113,0.8)', lineHeight: 1.5, marginBottom: onRetry ? 8 : 0 }}>
+              {job.error ?? '翻译失败，请重试'}
+            </div>
+            {onRetry && (
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11,
+                  color: retrying ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.6)',
+                  background: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 5,
+                  padding: '4px 10px',
+                  cursor: retrying ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { if (!retrying) e.currentTarget.style.background = 'rgba(255,255,255,0.12)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+              >
+                {retrying
+                  ? <><span className="spinner" style={{ width: 9, height: 9 }} /> 重试中…</>
+                  : '↻ 重试'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="shimmer" style={{ height: 70 }} />
@@ -158,3 +192,4 @@ export function JobCard({ job }: Props) {
     </>
   )
 }
+
