@@ -140,6 +140,7 @@ export function App() {
   }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel])
 
   // ── Batch translate ───────────────────────────────────────────────────────────
+  // 顺序执行（sequential）：一张翻译完再开始下一张，避免并发打爆 API 限额
 
   const translateBatch = useCallback(async () => {
     const selected = pageImages.filter((img) => img.selected)
@@ -150,8 +151,14 @@ export function App() {
     }
     setActiveTab('history')
 
-    for (const img of selected) {
-      const jobId = `job-${Date.now()}-${img.id.slice(0, 8)}`
+    // 先批量注册所有 job（保持原图顺序），用索引保证 jobId 绝对唯一
+    const batchBase = Date.now()
+    const jobIds: string[] = selected.map((img, i) => `job-${batchBase}-${i}-${img.id.slice(0, 6)}`)
+
+    for (let i = 0; i < selected.length; i++) {
+      const img = selected[i]
+      const jobId = jobIds[i]
+
       const job: TranslationJob = {
         id: jobId,
         imageUrl: img.src,
@@ -164,31 +171,88 @@ export function App() {
         createdAt: Date.now(),
       }
       addJob(job)
+    }
 
-      chrome.runtime.sendMessage({
-        type: 'TRANSLATE_IMAGE',
-        imageUrl: img.src,
-        imageBase64: img.base64 ?? null,
-        sourceLanguage,
-        targetLanguage,
-        model: selectedModel,
-        visionApiKey: settings.visionApiKey,
-        banana2ApiKey: settings.banana2ApiKey,
-        bananaProApiKey: settings.bananaProApiKey,
-        preserveBrand: settings.preserveBrand,
-        jobId,
-      }).then((resp: any) => {
-        if (resp?.error) updateJob(jobId, { status: 'error', error: resp.error })
-        else updateJob(jobId, {
-          status: 'done',
-          resultDataUrl: resp?.resultDataUrl,
-          ocrTexts: resp?.ocrTexts ?? [],
-          keepCount: resp?.keepCount ?? 0,
-          translateCount: resp?.translateCount ?? 0,
+    // 顺序逐张翻译，等待每一个 Promise resolve 再进入下一张
+    for (let i = 0; i < selected.length; i++) {
+      const img = selected[i]
+      const jobId = jobIds[i]
+
+      try {
+        const resp: any = await chrome.runtime.sendMessage({
+          type: 'TRANSLATE_IMAGE',
+          imageUrl: img.src,
+          imageBase64: img.base64 ?? null,
+          sourceLanguage,
+          targetLanguage,
+          model: selectedModel,
+          visionApiKey: settings.visionApiKey,
+          banana2ApiKey: settings.banana2ApiKey,
+          bananaProApiKey: settings.bananaProApiKey,
+          preserveBrand: settings.preserveBrand,
+          jobId,
         })
-      }).catch((e: any) => {
+
+        if (resp?.error) {
+          // 解析 429 错误里的 retry-after 秒数，自动等待后继续
+          const retryMatch = resp.error?.match(/retry in (\d+(?:\.\d+)?)s/i)
+          if (retryMatch) {
+            const waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 500
+            updateJob(jobId, {
+              status: 'error',
+              error: `配额超限，${Math.ceil(waitMs / 1000)}s 后自动重试…`,
+            })
+            await new Promise(res => setTimeout(res, waitMs))
+            // 重置为 translating 再重试一次
+            updateJob(jobId, { status: 'translating', error: undefined })
+            try {
+              const resp2: any = await chrome.runtime.sendMessage({
+                type: 'TRANSLATE_IMAGE',
+                imageUrl: img.src,
+                imageBase64: img.base64 ?? null,
+                sourceLanguage,
+                targetLanguage,
+                model: selectedModel,
+                visionApiKey: settings.visionApiKey,
+                banana2ApiKey: settings.banana2ApiKey,
+                bananaProApiKey: settings.bananaProApiKey,
+                preserveBrand: settings.preserveBrand,
+                jobId,
+              })
+              if (resp2?.error) {
+                updateJob(jobId, { status: 'error', error: resp2.error })
+              } else {
+                updateJob(jobId, {
+                  status: 'done',
+                  resultDataUrl: resp2?.resultDataUrl,
+                  ocrTexts: resp2?.ocrTexts ?? [],
+                  keepCount: resp2?.keepCount ?? 0,
+                  translateCount: resp2?.translateCount ?? 0,
+                })
+              }
+            } catch (e2: any) {
+              updateJob(jobId, { status: 'error', error: e2?.message ?? '重试失败' })
+            }
+          } else {
+            updateJob(jobId, { status: 'error', error: resp.error })
+          }
+        } else {
+          updateJob(jobId, {
+            status: 'done',
+            resultDataUrl: resp?.resultDataUrl,
+            ocrTexts: resp?.ocrTexts ?? [],
+            keepCount: resp?.keepCount ?? 0,
+            translateCount: resp?.translateCount ?? 0,
+          })
+        }
+      } catch (e: any) {
         updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
-      })
+      }
+
+      // 两张之间加最少间隔（200ms），给 API 喘息空间
+      if (i < selected.length - 1) {
+        await new Promise(res => setTimeout(res, 200))
+      }
     }
   }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel])
 
