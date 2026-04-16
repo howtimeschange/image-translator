@@ -6,6 +6,7 @@ import { TranslateControls } from '../components/TranslateControls'
 import { JobCard } from '../components/JobCard'
 import { ImageGrid } from '../components/ImageGrid'
 import { ImageLightbox } from '../components/ImageLightbox'
+import { translateImage, fetchImageBase64 } from '../services/translator'
 import type { PageImage, TranslationJob } from '../services/types'
 
 type Tab = 'single' | 'batch' | 'history' | 'settings'
@@ -193,6 +194,25 @@ export function App() {
     setIsScanningImages(false)
   }, [activeTabId, pinnedImages, setPageImages, setPinnedImages])
 
+  // ── 获取图片 base64（优先从 content-script 获取，绕过 CORS） ─────────────────
+  const getImageBase64 = useCallback(async (url: string, existingBase64?: string | null): Promise<string | null> => {
+    if (existingBase64) return existingBase64
+    if (!url) return null
+    // 先尝试从 content-script 获取（可绕过 CORS）
+    if (activeTabId) {
+      try {
+        const resp = await chrome.runtime.sendMessage({
+          type: 'RELAY_TO_TAB',
+          tabId: activeTabId,
+          payload: { type: 'FETCH_IMAGE_BASE64', url },
+        })
+        if (resp?.base64) return resp.base64 as string
+      } catch {}
+    }
+    // fallback：侧边栏直接 fetch
+    try { return await fetchImageBase64(url) } catch { return null }
+  }, [activeTabId])
+
   // ── Single translate ──────────────────────────────────────────────────────────
 
   const translateSingle = useCallback(async () => {
@@ -220,33 +240,37 @@ export function App() {
     addJob(job)
 
     try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'TRANSLATE_IMAGE',
-        imageUrl: singleImage.url,
-        imageBase64: singleImage.base64,
+      // 直接在侧边栏页面调用翻译（避免 service-worker 被挂起）
+      const base64 = await getImageBase64(singleImage.url, singleImage.base64)
+      if (!base64) throw new Error('无法获取图片数据，请检查图片是否可访问')
+
+      const result = await translateImage(
+        base64,
         sourceLanguage,
         targetLanguage,
-        model: selectedModel,
-        visionApiKey: settings.visionApiKey,
-        banana2ApiKey: settings.banana2ApiKey,
-        bananaProApiKey: settings.bananaProApiKey,
-        preserveBrand: settings.preserveBrand,
-        jobId,
+        selectedModel,
+        {
+          visionApiKey: settings.visionApiKey,
+          banana2ApiKey: settings.banana2ApiKey,
+          bananaProApiKey: settings.bananaProApiKey,
+        },
+        settings.preserveBrand,
+      )
+      setSingleResult(result.resultDataUrl)
+      updateJob(jobId, {
+        status: 'done',
+        resultDataUrl: result.resultDataUrl,
+        ocrTexts: result.ocrTexts,
+        keepCount: result.keepCount,
+        translateCount: result.translateCount,
       })
-      if (resp?.error) throw new Error(resp.error)
-      const resultDataUrl = resp?.resultDataUrl
-      const ocrTexts = resp?.ocrTexts ?? []
-      const keepCount = resp?.keepCount ?? 0
-      const translateCount = resp?.translateCount ?? 0
-      setSingleResult(resultDataUrl)
-      updateJob(jobId, { status: 'done', resultDataUrl, ocrTexts, keepCount, translateCount })
     } catch (e: any) {
       const errMsg = e?.message ?? '翻译失败，请重试'
       setSingleError(errMsg)
       updateJob(jobId, { status: 'error', error: errMsg })
     }
     setIsTranslatingSingle(false)
-  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob])
+  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, getImageBase64])
 
   // ── Batch translate ───────────────────────────────────────────────────────────
 
@@ -260,104 +284,85 @@ export function App() {
     setActiveTab('history')
 
     const batchBase = Date.now()
-    const jobIds: string[] = selected.map((img, i) => `job-${batchBase}-${i}-${img.id.slice(0, 6)}`)
 
+    // 先全部创建 translating 状态
+    const jobs_: TranslationJob[] = selected.map((img, i) => ({
+      id: `job-${batchBase}-${i}-${img.id.slice(0, 6)}`,
+      imageUrl: img.src,
+      imageBase64: img.base64 ?? null,
+      sourceLanguage,
+      targetLanguage,
+      model: selectedModel,
+      status: 'translating' as const,
+      preserveBrand: settings.preserveBrand,
+      createdAt: Date.now(),
+    }))
+    for (const j of jobs_) addJob(j)
+
+    // 顺序执行翻译（避免并发超配额）
     for (let i = 0; i < selected.length; i++) {
       const img = selected[i]
-      const jobId = jobIds[i]
+      const jobId = jobs_[i].id
 
-      const job: TranslationJob = {
-        id: jobId,
-        imageUrl: img.src,
-        imageBase64: img.base64 ?? null,
-        sourceLanguage,
-        targetLanguage,
-        model: selectedModel,
-        status: 'translating',
-        preserveBrand: settings.preserveBrand,
-        createdAt: Date.now(),
-      }
-      addJob(job)
-    }
+      const doTranslate = async (): Promise<void> => {
+        // 获取图片 base64
+        const base64 = await getImageBase64(img.src, img.base64)
+        if (!base64) throw new Error('无法获取图片数据，请检查图片是否可访问')
 
-    for (let i = 0; i < selected.length; i++) {
-      const img = selected[i]
-      const jobId = jobIds[i]
-
-      try {
-        const resp: any = await chrome.runtime.sendMessage({
-          type: 'TRANSLATE_IMAGE',
-          imageUrl: img.src,
-          imageBase64: img.base64 ?? null,
+        // 直接在侧边栏页面调用翻译（避免 service-worker 被挂起）
+        const result = await translateImage(
+          base64,
           sourceLanguage,
           targetLanguage,
-          model: selectedModel,
-          visionApiKey: settings.visionApiKey,
-          banana2ApiKey: settings.banana2ApiKey,
-          bananaProApiKey: settings.bananaProApiKey,
-          preserveBrand: settings.preserveBrand,
-          jobId,
+          selectedModel,
+          {
+            visionApiKey: settings.visionApiKey,
+            banana2ApiKey: settings.banana2ApiKey,
+            bananaProApiKey: settings.bananaProApiKey,
+          },
+          settings.preserveBrand,
+        )
+        updateJob(jobId, {
+          status: 'done',
+          resultDataUrl: result.resultDataUrl,
+          ocrTexts: result.ocrTexts,
+          keepCount: result.keepCount,
+          translateCount: result.translateCount,
         })
+      }
 
-        if (resp?.error) {
-          const retryMatch = resp.error?.match(/retry in (\d+(?:\.\d+)?)s/i)
-          if (retryMatch) {
-            const waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 500
-            updateJob(jobId, {
-              status: 'error',
-              error: `配额超限，${Math.ceil(waitMs / 1000)}s 后自动重试…`,
-            })
-            await new Promise(res => setTimeout(res, waitMs))
-            updateJob(jobId, { status: 'translating', error: undefined })
-            try {
-              const resp2: any = await chrome.runtime.sendMessage({
-                type: 'TRANSLATE_IMAGE',
-                imageUrl: img.src,
-                imageBase64: img.base64 ?? null,
-                sourceLanguage,
-                targetLanguage,
-                model: selectedModel,
-                visionApiKey: settings.visionApiKey,
-                banana2ApiKey: settings.banana2ApiKey,
-                bananaProApiKey: settings.bananaProApiKey,
-                preserveBrand: settings.preserveBrand,
-                jobId,
-              })
-              if (resp2?.error) {
-                updateJob(jobId, { status: 'error', error: resp2.error })
-              } else {
-                updateJob(jobId, {
-                  status: 'done',
-                  resultDataUrl: resp2?.resultDataUrl,
-                  ocrTexts: resp2?.ocrTexts ?? [],
-                  keepCount: resp2?.keepCount ?? 0,
-                  translateCount: resp2?.translateCount ?? 0,
-                })
-              }
-            } catch (e2: any) {
-              updateJob(jobId, { status: 'error', error: e2?.message ?? '重试失败' })
-            }
-          } else {
-            updateJob(jobId, { status: 'error', error: resp.error })
+      try {
+        await doTranslate()
+      } catch (e: any) {
+        const msg: string = e?.message ?? '翻译失败'
+        // 429 自动重试
+        const retryMatch = msg.match(/retry[_\s]?in\s+(\d+(?:\.\d+)?)\s*s/i)
+          ?? msg.match(/(\d+(?:\.\d+)?)\s*s.*retry/i)
+          ?? (msg.includes('429') ? ['', '10'] : null)
+        if (retryMatch) {
+          const waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 800
+          updateJob(jobId, {
+            status: 'error',
+            error: `配额限制，${Math.ceil(waitMs / 1000)}s 后自动重试…`,
+          })
+          await new Promise(res => setTimeout(res, waitMs))
+          updateJob(jobId, { status: 'translating', error: undefined })
+          try {
+            await doTranslate()
+          } catch (e2: any) {
+            updateJob(jobId, { status: 'error', error: e2?.message ?? '重试失败' })
           }
         } else {
-          updateJob(jobId, {
-            status: 'done',
-            resultDataUrl: resp?.resultDataUrl,
-            ocrTexts: resp?.ocrTexts ?? [],
-            keepCount: resp?.keepCount ?? 0,
-            translateCount: resp?.translateCount ?? 0,
-          })
+          updateJob(jobId, { status: 'error', error: msg })
         }
-      } catch (e: any) {
-        updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
       }
 
+      // 每张之间间隔 300ms，减少 429 概率
       if (i < selected.length - 1) {
-        await new Promise(res => setTimeout(res, 200))
+        await new Promise(res => setTimeout(res, 300))
       }
     }
-  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, setActiveTab])
+  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, setActiveTab, getImageBase64])
 
   // ── Tab switch ────────────────────────────────────────────────────────────────
 

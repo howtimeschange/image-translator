@@ -263,10 +263,10 @@ async function ensureContentScript(tabId: number): Promise<void> {
 }
 
 // ── 8. 获取真实页面 tabId ─────────────────────────────────────────────────────
-// 优先使用 sidebarBoundTabId，fallback 到 active tab 查询
+// 优先使用 sidebarBoundTabId，fallback 到当前窗口 active tab
 
 async function getActivePageTabId(): Promise<number | null> {
-  // 优先用侧边栏绑定的 tabId
+  // 优先用侧边栏绑定的 tabId（通过 REGISTER_SIDEBAR_TAB 注册）
   if (sidebarBoundTabId) {
     try {
       const tab = await chrome.tabs.get(sidebarBoundTabId)
@@ -276,15 +276,16 @@ async function getActivePageTabId(): Promise<number | null> {
     }
   }
 
-  // fallback：遍历所有窗口的 active tab，找 http/https 页面
+  // fallback：遍历所有 active tab（每个窗口一个），找第一个 http/https
   const activeTabs = await chrome.tabs.query({ active: true })
-  for (const tab of activeTabs) {
-    if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
-  }
+  // 优先找最近有用户交互的窗口（lastFocusedWindow 不可用时，取 focused=true 的 window）
+  try {
+    const focusedWin = await chrome.windows.getLastFocused({ populate: false })
+    const tab = activeTabs.find(t => t.windowId === focusedWin.id && t.url && /^https?:/.test(t.url ?? ''))
+    if (tab?.id) return tab.id
+  } catch {}
 
-  // 最后兜底：highlighted tab
-  const highlighted = await chrome.tabs.query({ highlighted: true })
-  for (const tab of highlighted) {
+  for (const tab of activeTabs) {
     if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
   }
   return null
