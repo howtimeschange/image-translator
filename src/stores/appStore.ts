@@ -33,6 +33,7 @@ interface AppState {
   pinnedImages: PageImage[]
   setPinnedImages: (imgs: PageImage[]) => void
   addPinnedImage: (img: PageImage) => void
+  removePinnedImage: (id: string) => void
   clearPinnedImages: () => void
   toggleImageSelection: (id: string) => void
   selectAll: () => void
@@ -92,6 +93,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   addPinnedImage: (img) =>
     set((state) => ({
       pinnedImages: [img, ...state.pinnedImages.filter((item) => item.src !== img.src)],
+    })),
+  removePinnedImage: (id) =>
+    set((state) => ({
+      pinnedImages: state.pinnedImages.filter((item) => item.id !== id),
     })),
   clearPinnedImages: () => set({ pinnedImages: [] }),
 

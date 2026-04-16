@@ -43,7 +43,7 @@ export function App() {
     activeTab, setActiveTab,
     singleImage, setSingleImage,
     pageImages, setPageImages,
-    pinnedImages, setPinnedImages, addPinnedImage, clearPinnedImages,
+    pinnedImages, setPinnedImages, addPinnedImage, removePinnedImage, clearPinnedImages,
     jobs, addJob, updateJob, clearJobs,
     targetLanguage, selectedModel,
     sourceLanguage,
@@ -107,7 +107,11 @@ export function App() {
     const enable = activeTab === 'batch'
     chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
       if (!tabs[0]?.id) return
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'PIN_OVERLAY_INIT', enabled: enable }).catch(() => {})
+      const tabId = tabs[0].id
+      chrome.tabs.sendMessage(tabId, { type: 'PIN_OVERLAY_INIT', enabled: enable }).catch(() => {})
+      // 同步当前已 pin 的 src 集合，让页面可以渲染角标
+      const srcs = useAppStore.getState().pinnedImages.map((img) => img.src)
+      chrome.tabs.sendMessage(tabId, { type: 'SYNC_PINNED_SRCS', srcs }).catch(() => {})
     }).catch(() => {})
   }, [activeTab])
 
@@ -323,7 +327,31 @@ export function App() {
   const clearPins = async () => {
     await chrome.runtime.sendMessage({ type: 'CLEAR_PINNED_IMAGES' }).catch(() => {})
     clearPinnedImages()
+    // 同步清空角标
+    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+      if (!tabs[0]?.id) return
+      chrome.tabs.sendMessage(tabs[0].id, { type: 'SYNC_PINNED_SRCS', srcs: [] }).catch(() => {})
+    }).catch(() => {})
     setPageImages(pageImages.filter((img) => img.source !== 'pin'))
+  }
+
+  const handleRemovePin = async (id: string) => {
+    const img = pinnedImages.find((item) => item.id === id)
+    // 从 storage 更新
+    const nextPinned = pinnedImages.filter((item) => item.id !== id)
+    await chrome.storage.local.set({ pinnedImages: nextPinned }).catch(() => {})
+    removePinnedImage(id)
+    setPageImages(pageImages.filter((item) => item.id !== id))
+    // 同步角标
+    if (img) {
+      chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+        if (!tabs[0]?.id) return
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'SYNC_PINNED_SRCS',
+          srcs: nextPinned.map((p) => p.src),
+        }).catch(() => {})
+      }).catch(() => {})
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -511,56 +539,52 @@ export function App() {
 
         {activeTab === 'batch' && (
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 10,
-              padding: 12,
-              background: 'rgba(255,255,255,0.02)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div className="label-xs">待处理队列（Pin）</div>
-                <button
-                  onClick={clearPins}
-                  disabled={pinnedImages.length === 0}
-                  style={{
-                    fontSize: 11,
-                    color: pinnedImages.length ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.14)',
-                    background: 'none', border: 'none', cursor: pinnedImages.length ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  清空队列
-                </button>
+            {/* Pin 队列说明条 */}
+            {pinnedImages.length === 0 && pageImages.length === 0 && (
+              <div style={{
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 10,
+                padding: '10px 14px',
+                background: 'rgba(255,255,255,0.02)',
+                fontSize: 11, color: 'rgba(255,255,255,0.22)', lineHeight: 1.6,
+              }}>
+                把鼠标移到网页图片上，出现 <strong style={{ color: 'rgba(255,255,255,0.55)' }}>📌 Pin</strong> 后点击加入队列，
+                或点「深度扫描」自动抓取页面商品图。
               </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.22)', lineHeight: 1.6 }}>
-                在网页里把鼠标移到有效图片上，会出现 <strong style={{ color: 'rgba(255,255,255,0.55)' }}>📌 Pin</strong> 按钮。<br />
-                Pin 后会进入这里，适合手动挑主图 / 商详图再批量翻译。
-              </div>
-              {pinnedImages.length > 0 && (
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
-                  当前已 Pin {pinnedImages.length} 张
-                </div>
-              )}
-            </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="label-xs">页面图片（自动探查）</div>
-              <button
-                onClick={scanImages}
-                disabled={isScanningImages}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 11, color: 'rgba(255,255,255,0.35)',
-                  background: 'none', border: 'none', cursor: isScanningImages ? 'not-allowed' : 'pointer',
-                }}
-                onMouseEnter={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
-                onMouseLeave={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
-              >
-                {isScanningImages ? <span className="spinner" style={{ width: 9, height: 9 }} /> : '↺'}
-                深度扫描
-              </button>
+              <div className="label-xs">
+                {pinnedImages.length > 0
+                  ? `批量图片（${pinnedImages.length} 已 Pin · ${pageImages.filter(i => i.source !== 'pin').length} 已扫描）`
+                  : '批量图片'}
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {pinnedImages.length > 0 && (
+                  <button
+                    onClick={clearPins}
+                    style={{ fontSize: 11, color: 'rgba(248,113,113,0.6)', background: 'none', border: 'none', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'rgba(248,113,113,0.9)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'rgba(248,113,113,0.6)')}
+                  >
+                    清空 Pin
+                  </button>
+                )}
+                <button
+                  onClick={scanImages}
+                  disabled={isScanningImages}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontSize: 11, color: 'rgba(255,255,255,0.35)',
+                    background: 'none', border: 'none', cursor: isScanningImages ? 'not-allowed' : 'pointer',
+                  }}
+                  onMouseEnter={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+                  onMouseLeave={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
+                >
+                  {isScanningImages ? <span className="spinner" style={{ width: 9, height: 9 }} /> : '↺'}
+                  深度扫描
+                </button>
+              </div>
             </div>
 
             {isScanningImages ? (
@@ -568,7 +592,7 @@ export function App() {
                 {[1,2,3,4].map(i => <div key={i} className="shimmer" style={{ height: 90 }} />)}
               </div>
             ) : (
-              <ImageGrid images={pageImages} />
+              <ImageGrid images={pageImages} onRemovePin={handleRemovePin} />
             )}
 
             {selectedCount > 0 && (

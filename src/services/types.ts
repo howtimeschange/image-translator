@@ -131,6 +131,7 @@ export interface ChromeMessage {
     | 'PIN_IMAGE'                // content → background → sidebar: 用户在页面 pin 了一张图
     | 'UNPIN_IMAGE'              // sidebar → content: 从 pin 队列中移除
     | 'PIN_OVERLAY_INIT'         // sidebar → content: 启用 / 禁用 pin 浮层
+    | 'SYNC_PINNED_SRCS'         // sidebar → content: 同步已 pin 的 src 集合（用于角标）
     | 'PING'
   [key: string]: unknown
 }
