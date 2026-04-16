@@ -60,7 +60,11 @@ export function App() {
   const refreshActiveTabId = useCallback(async () => {
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_ID' })
-      if (resp?.tabId) setActiveTabId(resp.tabId)
+      if (resp?.tabId) {
+        setActiveTabId(resp.tabId)
+        // 同时告诉 service-worker 侧边栏现在绑定哪个 tab
+        chrome.runtime.sendMessage({ type: 'REGISTER_SIDEBAR_TAB', tabId: resp.tabId }).catch(() => {})
+      }
     } catch {}
   }, [])
 
@@ -95,14 +99,24 @@ export function App() {
         })
       }
       if (message.type === 'PIN_IMAGE' && message.image) {
-        addPinnedImage({
-          ...message.image,
-          source: 'pin',
-          selected: true,
+        // 直接从 storage 读最新的 pinnedImages，避免广播时序问题
+        chrome.storage.local.get(['pinnedImages']).then((data) => {
+          const latest: PageImage[] = Array.isArray(data.pinnedImages) ? data.pinnedImages : []
+          setPinnedImages(latest.map((img, i) => ({
+            ...img,
+            id: img.id || `pin-${i}-${img.src}`,
+            source: 'pin' as const,
+            selected: img.selected ?? true,
+          })))
+          // 同时更新 pageImages，把新 pin 的图合入
+          useAppStore.setState((state) => {
+            const merged = mergeImages(
+              latest.map((img, i) => ({ ...img, id: img.id || `pin-${i}-${img.src}`, source: 'pin' as const, selected: img.selected ?? true })),
+              state.pageImages.filter((img) => img.source !== 'pin')
+            )
+            return { pageImages: merged }
+          })
         })
-        if (Array.isArray(message.images)) {
-          setPinnedImages(message.images)
-        }
         setActiveTab('batch')
       }
     }

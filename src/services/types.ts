@@ -129,6 +129,7 @@ export interface ChromeMessage {
     | 'TRANSLATE_RESULT'         // background → sidebar: 翻译结果
     | 'OPEN_SIDEBAR_WITH_IMAGE'  // background → sidebar: 右键触发打开侧边栏
     | 'GET_ACTIVE_TAB_ID'        // sidebar → background: 查询真实页面 tabId
+    | 'REGISTER_SIDEBAR_TAB'     // sidebar → background: 注册侧边栏绑定的 tabId
     | 'RELAY_TO_TAB'             // sidebar → background → content: 中转消息到指定 tab
     | 'PIN_IMAGE'                // content → background → sidebar: 用户在页面 pin 了一张图
     | 'UNPIN_IMAGE'              // sidebar → content: 从 pin 队列中移除

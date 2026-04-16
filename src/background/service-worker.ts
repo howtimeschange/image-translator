@@ -13,11 +13,17 @@
 import { translateImage, fetchImageBase64 } from '../services/translator'
 import type { Language, ModelId, PageImage } from '../services/types'
 
+// ── 0. 侧边栏 tabId 追踪 ─────────────────────────────────────────────────────
+// 侧边栏打开时绑定的 tab，用于深度扫描和消息发送
+
+let sidebarBoundTabId: number | null = null
+
 // ── 1. 点击扩展图标 → 打开侧边栏 ─────────────────────────────────────────────
 
 chrome.action.onClicked.addListener((tab) => {
   if (chrome.sidePanel && tab.windowId) {
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {})
+    if (tab.id) sidebarBoundTabId = tab.id
   }
 })
 
@@ -46,6 +52,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (chrome.sidePanel) {
     chrome.sidePanel.open({ windowId }).catch(() => {})
+    sidebarBoundTabId = tabId
   }
 
   chrome.storage.local.set({
@@ -85,7 +92,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // ── 4. Message Router ─────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TRANSLATE_IMAGE') {
     handleTranslate(message)
       .then(sendResponse)
@@ -100,7 +107,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true
   }
 
-  // 获取真实页面 tabId（过滤扩展页面、找最近活跃的普通页面 tab）
+  // 侧边栏注册自己绑定的 tabId（侧边栏初始化时发送）
+  if (message.type === 'REGISTER_SIDEBAR_TAB') {
+    if (message.tabId) sidebarBoundTabId = message.tabId as number
+    sendResponse({ ok: true })
+    return false
+  }
+
+  // 获取绑定的 tabId
   if (message.type === 'GET_ACTIVE_TAB_ID') {
     getActivePageTabId()
       .then((tabId) => sendResponse({ tabId }))
@@ -109,10 +123,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'SCAN_PAGE_IMAGES' || message.type === 'DEEP_SCAN_PAGE_IMAGES') {
-    const tabId = message.tabId as number | undefined
+    const requestedTabId = message.tabId as number | undefined
     const doScan = async (id: number) => {
       try {
-        // 先注入 content script（幂等，已注入则跳过）
         await ensureContentScript(id)
         const resp = await chrome.tabs.sendMessage(id, { type: 'DEEP_SCAN_PAGE_IMAGES' })
         sendResponse(resp)
@@ -120,8 +133,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ images: [], error: String(e) })
       }
     }
-    if (tabId) {
-      doScan(tabId)
+    if (requestedTabId) {
+      doScan(requestedTabId)
     } else {
       getActivePageTabId()
         .then((id) => id ? doScan(id) : sendResponse({ images: [] }))
@@ -133,7 +146,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 转发消息到指定 tab（PIN_OVERLAY_INIT / SYNC_PINNED_SRCS）
   if (message.type === 'RELAY_TO_TAB') {
     const { tabId: targetTabId, payload } = message as { tabId: number; payload: object }
-    // 确保 content script 已注入
     ensureContentScript(targetTabId).then(() => {
       chrome.tabs.sendMessage(targetTabId, payload)
         .then(() => sendResponse({ ok: true }))
@@ -143,9 +155,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'PIN_IMAGE') {
+    // sender.tab.id 是 content script 所在 tab，记录下来
+    if (sender.tab?.id) sidebarBoundTabId = sender.tab.id
     addPinnedImage(message.image as PageImage)
       .then(async (images) => {
+        // 广播给侧边栏
         chrome.runtime.sendMessage({ type: 'PIN_IMAGE', image: message.image, images }).catch(() => {})
+        // 同时写入 storage 让侧边栏下次打开时也能读到
         sendResponse({ ok: true, images })
       })
       .catch((err) => sendResponse({ ok: false, error: String(err) }))
@@ -219,20 +235,19 @@ async function addPinnedImage(image: PageImage): Promise<PageImage[]> {
 
 // ── 7. 确保 content script 已注入 ────────────────────────────────────────────
 // MV3 限制：扩展更新后已打开的 tab 不会自动重新注入 content script
-// 解决方案：发消息前先用 scripting.executeScript 主动注入（幂等，重复注入无害）
 
 const injectedTabs = new Set<number>()
 
 async function ensureContentScript(tabId: number): Promise<void> {
   if (injectedTabs.has(tabId)) return
 
-  // 先 ping 一下，如果有响应说明已注入，不用重复注入
+  // 先 ping，有响应说明已注入
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'PING' })
     injectedTabs.add(tabId)
     return
   } catch {
-    // 没有响应，说明未注入，继续执行注入
+    // 未注入，继续
   }
 
   try {
@@ -241,41 +256,54 @@ async function ensureContentScript(tabId: number): Promise<void> {
       files: ['content/content-script.js'],
     })
     injectedTabs.add(tabId)
-    // 注入后稍等一下让 content script 初始化
-    await new Promise((r) => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 150))
   } catch (e) {
-    // 某些页面（扩展商店、chrome:// 等）不允许注入，忽略
     console.warn('[image-translator] cannot inject content script:', e)
   }
 }
-// 侧边栏的 currentWindow 可能指向扩展自身，必须主动过滤出普通 http/https 页面
+
+// ── 8. 获取真实页面 tabId ─────────────────────────────────────────────────────
+// 优先使用 sidebarBoundTabId，fallback 到 active tab 查询
 
 async function getActivePageTabId(): Promise<number | null> {
-  // 优先：当前所有窗口中 active=true 的普通页面
+  // 优先用侧边栏绑定的 tabId
+  if (sidebarBoundTabId) {
+    try {
+      const tab = await chrome.tabs.get(sidebarBoundTabId)
+      if (tab && tab.url && /^https?:/.test(tab.url)) return sidebarBoundTabId
+    } catch {
+      sidebarBoundTabId = null
+    }
+  }
+
+  // fallback：遍历所有窗口的 active tab，找 http/https 页面
   const activeTabs = await chrome.tabs.query({ active: true })
   for (const tab of activeTabs) {
     if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
   }
-  // 兜底：最近高亮的普通页面（用于 macOS 侧边栏把焦点拿走的情况）
-  const allTabs = await chrome.tabs.query({ highlighted: true })
-  for (const tab of allTabs) {
+
+  // 最后兜底：highlighted tab
+  const highlighted = await chrome.tabs.query({ highlighted: true })
+  for (const tab of highlighted) {
     if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
   }
   return null
 }
 
-// ── 7. Keep service worker alive (MV3 workaround) ────────────────────────────
+// ── 9. Keep service worker alive (MV3 workaround) ────────────────────────────
 
 chrome.alarms.create('keepalive', { periodInMinutes: 0.4 })
 chrome.alarms.onAlarm.addListener(() => { /* noop keepalive */ })
 
-// tab 导航/刷新时清掉注入缓存
+// tab 导航/刷新时清掉注入缓存，同时重置绑定 tabId（以便重新注入）
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
     injectedTabs.delete(tabId)
+    // 如果刷新的是绑定 tab，清掉缓存（下次操作会重新注入）
+    if (tabId === sidebarBoundTabId) injectedTabs.delete(tabId)
   }
 })
 chrome.tabs.onRemoved.addListener((tabId) => {
   injectedTabs.delete(tabId)
+  if (tabId === sidebarBoundTabId) sidebarBoundTabId = null
 })
-
