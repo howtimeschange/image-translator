@@ -61,6 +61,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   ;(async () => {
     let base64: string | null = null
     try {
+      await ensureContentScript(tabId)
       const resp = await chrome.tabs.sendMessage(tabId, {
         type: 'FETCH_IMAGE_BASE64',
         url: imageUrl,
@@ -111,10 +112,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const tabId = message.tabId as number | undefined
     const doScan = async (id: number) => {
       try {
+        // 先注入 content script（幂等，已注入则跳过）
+        await ensureContentScript(id)
         const resp = await chrome.tabs.sendMessage(id, { type: 'DEEP_SCAN_PAGE_IMAGES' })
         sendResponse(resp)
-      } catch {
-        sendResponse({ images: [] })
+      } catch (e) {
+        sendResponse({ images: [], error: String(e) })
       }
     }
     if (tabId) {
@@ -130,9 +133,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 转发消息到指定 tab（PIN_OVERLAY_INIT / SYNC_PINNED_SRCS）
   if (message.type === 'RELAY_TO_TAB') {
     const { tabId: targetTabId, payload } = message as { tabId: number; payload: object }
-    chrome.tabs.sendMessage(targetTabId, payload)
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }))
+    // 确保 content script 已注入
+    ensureContentScript(targetTabId).then(() => {
+      chrome.tabs.sendMessage(targetTabId, payload)
+        .then(() => sendResponse({ ok: true }))
+        .catch(() => sendResponse({ ok: false }))
+    }).catch(() => sendResponse({ ok: false }))
     return true
   }
 
@@ -211,7 +217,37 @@ async function addPinnedImage(image: PageImage): Promise<PageImage[]> {
   return next
 }
 
-// ── 7. 获取真实页面 tabId ─────────────────────────────────────────────────────
+// ── 7. 确保 content script 已注入 ────────────────────────────────────────────
+// MV3 限制：扩展更新后已打开的 tab 不会自动重新注入 content script
+// 解决方案：发消息前先用 scripting.executeScript 主动注入（幂等，重复注入无害）
+
+const injectedTabs = new Set<number>()
+
+async function ensureContentScript(tabId: number): Promise<void> {
+  if (injectedTabs.has(tabId)) return
+
+  // 先 ping 一下，如果有响应说明已注入，不用重复注入
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'PING' })
+    injectedTabs.add(tabId)
+    return
+  } catch {
+    // 没有响应，说明未注入，继续执行注入
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content/content-script.js'],
+    })
+    injectedTabs.add(tabId)
+    // 注入后稍等一下让 content script 初始化
+    await new Promise((r) => setTimeout(r, 100))
+  } catch (e) {
+    // 某些页面（扩展商店、chrome:// 等）不允许注入，忽略
+    console.warn('[image-translator] cannot inject content script:', e)
+  }
+}
 // 侧边栏的 currentWindow 可能指向扩展自身，必须主动过滤出普通 http/https 页面
 
 async function getActivePageTabId(): Promise<number | null> {
@@ -232,4 +268,14 @@ async function getActivePageTabId(): Promise<number | null> {
 
 chrome.alarms.create('keepalive', { periodInMinutes: 0.4 })
 chrome.alarms.onAlarm.addListener(() => { /* noop keepalive */ })
+
+// tab 导航/刷新时清掉注入缓存
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') {
+    injectedTabs.delete(tabId)
+  }
+})
+chrome.tabs.onRemoved.addListener((tabId) => {
+  injectedTabs.delete(tabId)
+})
 
