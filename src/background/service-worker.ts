@@ -99,16 +99,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true
   }
 
+  // 获取真实页面 tabId（过滤扩展页面、找最近活跃的普通页面 tab）
+  if (message.type === 'GET_ACTIVE_TAB_ID') {
+    getActivePageTabId()
+      .then((tabId) => sendResponse({ tabId }))
+      .catch(() => sendResponse({ tabId: null }))
+    return true
+  }
+
   if (message.type === 'SCAN_PAGE_IMAGES' || message.type === 'DEEP_SCAN_PAGE_IMAGES') {
-    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-      if (!tabs[0]?.id) { sendResponse({ images: [] }); return }
+    const tabId = message.tabId as number | undefined
+    const doScan = async (id: number) => {
       try {
-        const resp = await chrome.tabs.sendMessage(tabs[0].id, { type: 'DEEP_SCAN_PAGE_IMAGES' })
+        const resp = await chrome.tabs.sendMessage(id, { type: 'DEEP_SCAN_PAGE_IMAGES' })
         sendResponse(resp)
       } catch {
         sendResponse({ images: [] })
       }
-    })
+    }
+    if (tabId) {
+      doScan(tabId)
+    } else {
+      getActivePageTabId()
+        .then((id) => id ? doScan(id) : sendResponse({ images: [] }))
+        .catch(() => sendResponse({ images: [] }))
+    }
+    return true
+  }
+
+  // 转发消息到指定 tab（PIN_OVERLAY_INIT / SYNC_PINNED_SRCS）
+  if (message.type === 'RELAY_TO_TAB') {
+    const { tabId: targetTabId, payload } = message as { tabId: number; payload: object }
+    chrome.tabs.sendMessage(targetTabId, payload)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }))
     return true
   }
 
@@ -185,6 +209,23 @@ async function addPinnedImage(image: PageImage): Promise<PageImage[]> {
   const next = [image, ...existing.filter((item) => item.src !== image.src)]
   await chrome.storage.local.set({ pinnedImages: next })
   return next
+}
+
+// ── 7. 获取真实页面 tabId ─────────────────────────────────────────────────────
+// 侧边栏的 currentWindow 可能指向扩展自身，必须主动过滤出普通 http/https 页面
+
+async function getActivePageTabId(): Promise<number | null> {
+  // 优先：当前所有窗口中 active=true 的普通页面
+  const activeTabs = await chrome.tabs.query({ active: true })
+  for (const tab of activeTabs) {
+    if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
+  }
+  // 兜底：最近高亮的普通页面（用于 macOS 侧边栏把焦点拿走的情况）
+  const allTabs = await chrome.tabs.query({ highlighted: true })
+  for (const tab of allTabs) {
+    if (tab.id && tab.url && /^https?:/.test(tab.url)) return tab.id
+  }
+  return null
 }
 
 // ── 7. Keep service worker alive (MV3 workaround) ────────────────────────────

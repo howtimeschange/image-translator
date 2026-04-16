@@ -53,11 +53,31 @@ export function App() {
   const [isTranslatingSingle, setIsTranslatingSingle] = useState(false)
   const [singleResult, setSingleResult] = useState<string | null>(null)
   const [singleError, setSingleError] = useState<string | null>(null)
+  // 真实页面 tabId，通过 service-worker 查询避免侧边栏 currentWindow 问题
+  const [activeTabId, setActiveTabId] = useState<number | null>(null)
+
+  // ── 获取真实页面 tabId ────────────────────────────────────────────────────────
+  const refreshActiveTabId = useCallback(async () => {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_ID' })
+      if (resp?.tabId) setActiveTabId(resp.tabId)
+    } catch {}
+  }, [])
+
+  // 发消息到页面（通过 service-worker 中转，不依赖 currentWindow）
+  const sendToPage = useCallback(async (payload: object, tabId?: number) => {
+    const id = tabId ?? activeTabId
+    if (!id) return
+    try {
+      await chrome.runtime.sendMessage({ type: 'RELAY_TO_TAB', tabId: id, payload })
+    } catch {}
+  }, [activeTabId])
 
   // ── Init ─────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     loadSettings()
+    refreshActiveTabId() // 侧边栏初始化时查真实 tabId
 
     const handler = (message: { type: string; url?: string; base64?: string | null; image?: PageImage; images?: PageImage[] }) => {
       if (message.type === 'OPEN_SIDEBAR_WITH_IMAGE' && message.url) {
@@ -101,27 +121,37 @@ export function App() {
     })
 
     return () => chrome.runtime.onMessage.removeListener(handler)
-  }, [addPinnedImage, loadSettings, setActiveTab, setPinnedImages, setSingleImage])
+  }, [addPinnedImage, loadSettings, refreshActiveTabId, setActiveTab, setPinnedImages, setSingleImage])
 
   useEffect(() => {
+    // 每次切 tab 时刷新真实页面 tabId
+    refreshActiveTabId()
+  }, [activeTab, refreshActiveTabId])
+
+  useEffect(() => {
+    if (!activeTabId) return
     const enable = activeTab === 'batch'
-    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-      if (!tabs[0]?.id) return
-      const tabId = tabs[0].id
-      chrome.tabs.sendMessage(tabId, { type: 'PIN_OVERLAY_INIT', enabled: enable }).catch(() => {})
-      // 同步当前已 pin 的 src 集合，让页面可以渲染角标
-      const srcs = useAppStore.getState().pinnedImages.map((img) => img.src)
-      chrome.tabs.sendMessage(tabId, { type: 'SYNC_PINNED_SRCS', srcs }).catch(() => {})
-    }).catch(() => {})
-  }, [activeTab])
+    sendToPage({ type: 'PIN_OVERLAY_INIT', enabled: enable }, activeTabId)
+    const srcs = useAppStore.getState().pinnedImages.map((img) => img.src)
+    sendToPage({ type: 'SYNC_PINNED_SRCS', srcs }, activeTabId)
+  }, [activeTab, activeTabId, sendToPage])
 
   // ── Scan ─────────────────────────────────────────────────────────────────────
 
   const scanImages = useCallback(async () => {
     setIsScanningImages(true)
+    // 每次扫描前先刷新 tabId
+    let tabId = activeTabId
+    if (!tabId) {
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_ID' })
+        tabId = resp?.tabId ?? null
+        if (tabId) setActiveTabId(tabId)
+      } catch {}
+    }
     try {
       const [scanResp, pinResp] = await Promise.all([
-        chrome.runtime.sendMessage({ type: 'DEEP_SCAN_PAGE_IMAGES' }),
+        chrome.runtime.sendMessage({ type: 'DEEP_SCAN_PAGE_IMAGES', tabId }),
         chrome.runtime.sendMessage({ type: 'GET_PINNED_IMAGES' }),
       ])
 
@@ -145,7 +175,7 @@ export function App() {
       setPageImages(mergeImages(pinnedImages, []))
     }
     setIsScanningImages(false)
-  }, [pinnedImages, setPageImages, setPinnedImages])
+  }, [activeTabId, pinnedImages, setPageImages, setPinnedImages])
 
   // ── Single translate ──────────────────────────────────────────────────────────
 
@@ -327,30 +357,18 @@ export function App() {
   const clearPins = async () => {
     await chrome.runtime.sendMessage({ type: 'CLEAR_PINNED_IMAGES' }).catch(() => {})
     clearPinnedImages()
-    // 同步清空角标
-    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-      if (!tabs[0]?.id) return
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'SYNC_PINNED_SRCS', srcs: [] }).catch(() => {})
-    }).catch(() => {})
+    sendToPage({ type: 'SYNC_PINNED_SRCS', srcs: [] })
     setPageImages(pageImages.filter((img) => img.source !== 'pin'))
   }
 
   const handleRemovePin = async (id: string) => {
     const img = pinnedImages.find((item) => item.id === id)
-    // 从 storage 更新
     const nextPinned = pinnedImages.filter((item) => item.id !== id)
     await chrome.storage.local.set({ pinnedImages: nextPinned }).catch(() => {})
     removePinnedImage(id)
     setPageImages(pageImages.filter((item) => item.id !== id))
-    // 同步角标
     if (img) {
-      chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-        if (!tabs[0]?.id) return
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'SYNC_PINNED_SRCS',
-          srcs: nextPinned.map((p) => p.src),
-        }).catch(() => {})
-      }).catch(() => {})
+      sendToPage({ type: 'SYNC_PINNED_SRCS', srcs: nextPinned.map((p) => p.src) })
     }
   }
 
