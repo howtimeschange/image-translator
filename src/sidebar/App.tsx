@@ -5,7 +5,7 @@ import { SettingsPanel } from '../components/SettingsPanel'
 import { TranslateControls } from '../components/TranslateControls'
 import { JobCard } from '../components/JobCard'
 import { ImageGrid } from '../components/ImageGrid'
-import type { TranslationJob } from '../services/types'
+import type { PageImage, TranslationJob } from '../services/types'
 
 type Tab = 'single' | 'batch' | 'history' | 'settings'
 
@@ -16,12 +16,34 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'settings', label: '设置' },
 ]
 
+function mergeImages(pinnedImages: PageImage[], scannedImages: PageImage[]): PageImage[] {
+  const pinned = pinnedImages.map((img, i) => ({
+    ...img,
+    id: img.id || `pin-${i}-${img.src}`,
+    source: 'pin' as const,
+    selected: img.selected ?? true,
+  }))
+
+  const pinnedSrcSet = new Set(pinned.map((img) => img.src))
+  const scanned = scannedImages
+    .filter((img) => !pinnedSrcSet.has(img.src))
+    .map((img, i) => ({
+      ...img,
+      id: img.id || `scan-${i}-${img.src}`,
+      source: 'scan' as const,
+      selected: img.selected ?? false,
+    }))
+
+  return [...pinned, ...scanned]
+}
+
 export function App() {
   const {
     settings, loadSettings,
     activeTab, setActiveTab,
     singleImage, setSingleImage,
     pageImages, setPageImages,
+    pinnedImages, setPinnedImages, addPinnedImage, clearPinnedImages,
     jobs, addJob, updateJob, clearJobs,
     targetLanguage, selectedModel,
     sourceLanguage,
@@ -37,7 +59,7 @@ export function App() {
   useEffect(() => {
     loadSettings()
 
-    const handler = (message: { type: string; url?: string; base64?: string | null }) => {
+    const handler = (message: { type: string; url?: string; base64?: string | null; image?: PageImage; images?: PageImage[] }) => {
       if (message.type === 'OPEN_SIDEBAR_WITH_IMAGE' && message.url) {
         setSingleImage({ url: message.url, base64: message.base64 ?? null })
         setSingleResult(null)
@@ -52,10 +74,24 @@ export function App() {
           return {}
         })
       }
+      if (message.type === 'PIN_IMAGE' && message.image) {
+        addPinnedImage({
+          ...message.image,
+          source: 'pin',
+          selected: true,
+        })
+        if (Array.isArray(message.images)) {
+          setPinnedImages(message.images)
+        }
+        setActiveTab('batch')
+      }
     }
     chrome.runtime.onMessage.addListener(handler)
 
-    chrome.storage.local.get(['pendingImage']).then((data) => {
+    chrome.storage.local.get(['pendingImage', 'pinnedImages']).then((data) => {
+      if (Array.isArray(data.pinnedImages)) {
+        setPinnedImages(data.pinnedImages)
+      }
       if (data.pendingImage?.url) {
         const { url, base64 } = data.pendingImage
         setSingleImage({ url, base64: base64 ?? null })
@@ -65,24 +101,47 @@ export function App() {
     })
 
     return () => chrome.runtime.onMessage.removeListener(handler)
-  }, [])
+  }, [addPinnedImage, loadSettings, setActiveTab, setPinnedImages, setSingleImage])
+
+  useEffect(() => {
+    const enable = activeTab === 'batch'
+    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+      if (!tabs[0]?.id) return
+      chrome.tabs.sendMessage(tabs[0].id, { type: 'PIN_OVERLAY_INIT', enabled: enable }).catch(() => {})
+    }).catch(() => {})
+  }, [activeTab])
 
   // ── Scan ─────────────────────────────────────────────────────────────────────
 
   const scanImages = useCallback(async () => {
     setIsScanningImages(true)
-    setPageImages([])
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'SCAN_PAGE_IMAGES' })
-      const imgs = (resp?.images ?? []).map((img: any, i: number) => ({
+      const [scanResp, pinResp] = await Promise.all([
+        chrome.runtime.sendMessage({ type: 'DEEP_SCAN_PAGE_IMAGES' }),
+        chrome.runtime.sendMessage({ type: 'GET_PINNED_IMAGES' }),
+      ])
+
+      const scannedImages = (scanResp?.images ?? []).map((img: any, i: number) => ({
         ...img,
         id: `${img.src}-${i}`,
         selected: false,
+        source: 'scan' as const,
       }))
-      setPageImages(imgs)
-    } catch { /* ignore */ }
+
+      const pinned = (pinResp?.images ?? []).map((img: any, i: number) => ({
+        ...img,
+        id: img.id || `pin-${i}-${img.src}`,
+        selected: img.selected ?? true,
+        source: 'pin' as const,
+      }))
+
+      setPinnedImages(pinned)
+      setPageImages(mergeImages(pinned, scannedImages))
+    } catch {
+      setPageImages(mergeImages(pinnedImages, []))
+    }
     setIsScanningImages(false)
-  }, [])
+  }, [pinnedImages, setPageImages, setPinnedImages])
 
   // ── Single translate ──────────────────────────────────────────────────────────
 
@@ -137,10 +196,9 @@ export function App() {
       updateJob(jobId, { status: 'error', error: errMsg })
     }
     setIsTranslatingSingle(false)
-  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel])
+  }, [singleImage, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob])
 
   // ── Batch translate ───────────────────────────────────────────────────────────
-  // 顺序执行（sequential）：一张翻译完再开始下一张，避免并发打爆 API 限额
 
   const translateBatch = useCallback(async () => {
     const selected = pageImages.filter((img) => img.selected)
@@ -151,7 +209,6 @@ export function App() {
     }
     setActiveTab('history')
 
-    // 先批量注册所有 job（保持原图顺序），用索引保证 jobId 绝对唯一
     const batchBase = Date.now()
     const jobIds: string[] = selected.map((img, i) => `job-${batchBase}-${i}-${img.id.slice(0, 6)}`)
 
@@ -173,7 +230,6 @@ export function App() {
       addJob(job)
     }
 
-    // 顺序逐张翻译，等待每一个 Promise resolve 再进入下一张
     for (let i = 0; i < selected.length; i++) {
       const img = selected[i]
       const jobId = jobIds[i]
@@ -194,7 +250,6 @@ export function App() {
         })
 
         if (resp?.error) {
-          // 解析 429 错误里的 retry-after 秒数，自动等待后继续
           const retryMatch = resp.error?.match(/retry in (\d+(?:\.\d+)?)s/i)
           if (retryMatch) {
             const waitMs = Math.ceil(parseFloat(retryMatch[1]) * 1000) + 500
@@ -203,7 +258,6 @@ export function App() {
               error: `配额超限，${Math.ceil(waitMs / 1000)}s 后自动重试…`,
             })
             await new Promise(res => setTimeout(res, waitMs))
-            // 重置为 translating 再重试一次
             updateJob(jobId, { status: 'translating', error: undefined })
             try {
               const resp2: any = await chrome.runtime.sendMessage({
@@ -249,12 +303,11 @@ export function App() {
         updateJob(jobId, { status: 'error', error: e?.message ?? '翻译失败' })
       }
 
-      // 两张之间加最少间隔（200ms），给 API 喘息空间
       if (i < selected.length - 1) {
         await new Promise(res => setTimeout(res, 200))
       }
     }
-  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel])
+  }, [pageImages, settings, targetLanguage, sourceLanguage, selectedModel, addJob, updateJob, setActiveTab])
 
   // ── Tab switch ────────────────────────────────────────────────────────────────
 
@@ -265,13 +318,18 @@ export function App() {
 
   const noApiKey = !settings.banana2ApiKey && !settings.bananaProApiKey
   const runningCount = jobs.filter(j => j.status === 'translating').length
+  const selectedCount = pageImages.filter(i => i.selected).length
+
+  const clearPins = async () => {
+    await chrome.runtime.sendMessage({ type: 'CLEAR_PINNED_IMAGES' }).catch(() => {})
+    clearPinnedImages()
+    setPageImages(pageImages.filter((img) => img.source !== 'pin'))
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0c0c0e', overflow: 'hidden' }}>
-
-      {/* ── Header ── */}
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 16px',
@@ -296,7 +354,6 @@ export function App() {
         )}
       </header>
 
-      {/* ── No API Key warning ── */}
       {noApiKey && activeTab !== 'settings' && (
         <div style={{
           padding: '8px 16px',
@@ -314,7 +371,6 @@ export function App() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
       <nav style={{
         display: 'flex',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
@@ -367,15 +423,11 @@ export function App() {
         })}
       </nav>
 
-      {/* ── Content ── */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-
-        {/* ── Single ── */}
         {activeTab === 'single' && (
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {singleImage ? (
               <>
-                {/* Preview */}
                 <div style={{
                   borderRadius: 8,
                   overflow: 'hidden',
@@ -415,7 +467,6 @@ export function App() {
                   </div>
                 )}
 
-                {/* Error */}
                 {singleError && (
                   <div style={{
                     background: 'rgba(248,113,113,0.06)',
@@ -431,7 +482,6 @@ export function App() {
                 )}
               </>
             ) : (
-              /* Empty state */
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                 justifyContent: 'center', padding: '60px 16px',
@@ -459,11 +509,44 @@ export function App() {
           </div>
         )}
 
-        {/* ── Batch ── */}
         {activeTab === 'batch' && (
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 10,
+              padding: 12,
+              background: 'rgba(255,255,255,0.02)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="label-xs">待处理队列（Pin）</div>
+                <button
+                  onClick={clearPins}
+                  disabled={pinnedImages.length === 0}
+                  style={{
+                    fontSize: 11,
+                    color: pinnedImages.length ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.14)',
+                    background: 'none', border: 'none', cursor: pinnedImages.length ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  清空队列
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.22)', lineHeight: 1.6 }}>
+                在网页里把鼠标移到有效图片上，会出现 <strong style={{ color: 'rgba(255,255,255,0.55)' }}>📌 Pin</strong> 按钮。<br />
+                Pin 后会进入这里，适合手动挑主图 / 商详图再批量翻译。
+              </div>
+              {pinnedImages.length > 0 && (
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                  当前已 Pin {pinnedImages.length} 张
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="label-xs">页面图片</div>
+              <div className="label-xs">页面图片（自动探查）</div>
               <button
                 onClick={scanImages}
                 disabled={isScanningImages}
@@ -476,7 +559,7 @@ export function App() {
                 onMouseLeave={e => { if (!isScanningImages) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
               >
                 {isScanningImages ? <span className="spinner" style={{ width: 9, height: 9 }} /> : '↺'}
-                重新扫描
+                深度扫描
               </button>
             </div>
 
@@ -488,7 +571,7 @@ export function App() {
               <ImageGrid images={pageImages} />
             )}
 
-            {pageImages.filter(i => i.selected).length > 0 && (
+            {selectedCount > 0 && (
               <div style={{
                 borderTop: '1px solid rgba(255,255,255,0.06)',
                 paddingTop: 12,
@@ -500,14 +583,13 @@ export function App() {
                   disabled={noApiKey}
                 />
                 <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', margin: 0 }}>
-                  翻译 {pageImages.filter(i => i.selected).length} 张 · 完成后查看「结果」
+                  翻译 {selectedCount} 张 · 完成后查看「结果」
                 </p>
               </div>
             )}
           </div>
         )}
 
-        {/* ── History ── */}
         {activeTab === 'history' && (
           <div style={{ padding: '0 16px' }}>
             {jobs.length > 0 && (
@@ -537,7 +619,6 @@ export function App() {
           </div>
         )}
 
-        {/* ── Settings ── */}
         {activeTab === 'settings' && <SettingsPanel />}
       </div>
     </div>

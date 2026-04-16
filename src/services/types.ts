@@ -92,6 +92,12 @@ export interface PageImage {
   height: number
   base64?: string
   selected: boolean
+  /** 来源：页面扫描 or 手动 Pin */
+  source?: 'scan' | 'pin'
+  /** Pin 时所在页面的 URL */
+  originUrl?: string
+  /** Pin 时间戳 */
+  pinnedAt?: number
 }
 
 export interface Settings {
@@ -114,13 +120,17 @@ export interface Settings {
 export interface ChromeMessage {
   type:
     | 'IMAGE_RIGHT_CLICKED'      // content → background: 右键单图
-    | 'SCAN_PAGE_IMAGES'         // sidebar → content: 扫描页面图片
+    | 'SCAN_PAGE_IMAGES'         // sidebar → content: 扫描页面图片（旧：同步快扫）
+    | 'DEEP_SCAN_PAGE_IMAGES'    // sidebar → content: 深度扫图（懒加载+滚动+平台适配）
     | 'PAGE_IMAGES_RESULT'       // content → sidebar: 返回图片列表
     | 'FETCH_IMAGE_BASE64'       // background/sidebar → content: 获取图片 base64
     | 'FETCH_IMAGE_BASE64_RESULT'// content → background/sidebar
     | 'TRANSLATE_IMAGE'          // sidebar → background: 翻译请求
     | 'TRANSLATE_RESULT'         // background → sidebar: 翻译结果
     | 'OPEN_SIDEBAR_WITH_IMAGE'  // background → sidebar: 右键触发打开侧边栏
+    | 'PIN_IMAGE'                // content → background → sidebar: 用户在页面 pin 了一张图
+    | 'UNPIN_IMAGE'              // sidebar → content: 从 pin 队列中移除
+    | 'PIN_OVERLAY_INIT'         // sidebar → content: 启用 / 禁用 pin 浮层
     | 'PING'
   [key: string]: unknown
 }

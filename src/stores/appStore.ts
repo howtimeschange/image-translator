@@ -30,6 +30,10 @@ interface AppState {
   // Batch mode
   pageImages: PageImage[]
   setPageImages: (imgs: PageImage[]) => void
+  pinnedImages: PageImage[]
+  setPinnedImages: (imgs: PageImage[]) => void
+  addPinnedImage: (img: PageImage) => void
+  clearPinnedImages: () => void
   toggleImageSelection: (id: string) => void
   selectAll: () => void
   deselectAll: () => void
@@ -56,7 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ settings: { ...state.settings, ...s } })),
 
   loadSettings: async () => {
-    const data = await chrome.storage.local.get(['settings'])
+    const data = await chrome.storage.local.get(['settings', 'pinnedImages'])
     if (data.settings) {
       set({ settings: { ...DEFAULT_SETTINGS, ...data.settings } })
       set({
@@ -64,6 +68,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         sourceLanguage: data.settings.defaultSourceLanguage ?? 'auto',
         selectedModel: data.settings.defaultModel ?? 'nano-banana-2',
       })
+    }
+    if (Array.isArray(data.pinnedImages)) {
+      set({ pinnedImages: data.pinnedImages })
     }
   },
 
@@ -80,9 +87,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   pageImages: [],
   setPageImages: (imgs) => set({ pageImages: imgs }),
 
+  pinnedImages: [],
+  setPinnedImages: (imgs) => set({ pinnedImages: imgs }),
+  addPinnedImage: (img) =>
+    set((state) => ({
+      pinnedImages: [img, ...state.pinnedImages.filter((item) => item.src !== img.src)],
+    })),
+  clearPinnedImages: () => set({ pinnedImages: [] }),
+
   toggleImageSelection: (id) =>
     set((state) => ({
       pageImages: state.pageImages.map((img) =>
+        img.id === id ? { ...img, selected: !img.selected } : img
+      ),
+      pinnedImages: state.pinnedImages.map((img) =>
         img.id === id ? { ...img, selected: !img.selected } : img
       ),
     })),
@@ -90,11 +108,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectAll: () =>
     set((state) => ({
       pageImages: state.pageImages.map((img) => ({ ...img, selected: true })),
+      pinnedImages: state.pinnedImages.map((img) => ({ ...img, selected: true })),
     })),
 
   deselectAll: () =>
     set((state) => ({
       pageImages: state.pageImages.map((img) => ({ ...img, selected: false })),
+      pinnedImages: state.pinnedImages.map((img) => ({ ...img, selected: false })),
     })),
 
   jobs: [],
@@ -114,3 +134,4 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedModel: 'nano-banana-2',
   setSelectedModel: (m) => set({ selectedModel: m }),
 }))
+
