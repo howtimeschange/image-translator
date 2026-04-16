@@ -547,11 +547,35 @@ function handleMouseMove(event: MouseEvent) {
   if (!target) return
   if (pinButton && (target === pinButton || pinButton.contains(target))) return
 
-  const hover = findHoverCandidate(target)
+  // 用 elementsFromPoint 穿透遮罩层（pointer-events 遮盖的情况）
+  const hover = findHoverCandidateAtPoint(event.clientX, event.clientY) 
+    ?? findHoverCandidate(target)
   if (!hover) { scheduleHidePinButton(); return }
 
   currentHover = hover
   showPinButton(hover)
+}
+
+// 用坐标穿透遮罩找 img（解决京东/天猫主图区有遮罩层的问题）
+function findHoverCandidateAtPoint(x: number, y: number): HoverState | null {
+  const els = document.elementsFromPoint(x, y)
+  for (const el of els) {
+    if (el === pinButton) continue
+    if (el instanceof HTMLImageElement) {
+      const image = buildImageInfoFromElement(el)
+      if (image) return { el, image }
+    }
+  }
+  // 再找最近的含图片的容器
+  for (const el of els) {
+    if (el === pinButton || !(el instanceof HTMLElement)) continue
+    const img = el.querySelector<HTMLImageElement>('img')
+    if (img) {
+      const image = buildImageInfoFromElement(img)
+      if (image) return { el: img, image }
+    }
+  }
+  return null
 }
 
 function findHoverCandidate(target: Element): HoverState | null {

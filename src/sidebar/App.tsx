@@ -5,6 +5,7 @@ import { SettingsPanel } from '../components/SettingsPanel'
 import { TranslateControls } from '../components/TranslateControls'
 import { JobCard } from '../components/JobCard'
 import { ImageGrid } from '../components/ImageGrid'
+import { ImageLightbox } from '../components/ImageLightbox'
 import type { PageImage, TranslationJob } from '../services/types'
 
 type Tab = 'single' | 'batch' | 'history' | 'settings'
@@ -53,6 +54,7 @@ export function App() {
   const [isTranslatingSingle, setIsTranslatingSingle] = useState(false)
   const [singleResult, setSingleResult] = useState<string | null>(null)
   const [singleError, setSingleError] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; label: string; name?: string } | null>(null)
   // 真实页面 tabId，通过 service-worker 查询避免侧边栏 currentWindow 问题
   const [activeTabId, setActiveTabId] = useState<number | null>(null)
 
@@ -390,6 +392,14 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0c0c0e', overflow: 'hidden' }}>
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          label={lightbox.label}
+          downloadName={lightbox.name}
+          onClose={() => setLightbox(null)}
+        />
+      )}
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 16px',
@@ -521,8 +531,21 @@ export function App() {
                         ↓ 下载
                       </a>
                     </div>
-                    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', background: '#000' }}>
+                    <div
+                      onClick={() => setLightbox({ src: singleResult, label: '翻译结果', name: 'translated.png' })}
+                      style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'zoom-in', position: 'relative' }}
+                    >
                       <img src={singleResult} alt="翻译结果" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }} />
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 22, opacity: 0,
+                        background: 'rgba(0,0,0,0.35)',
+                        transition: 'opacity 0.15s',
+                      }}
+                        onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                        onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+                      >🔍</div>
                     </div>
                   </div>
                 )}
