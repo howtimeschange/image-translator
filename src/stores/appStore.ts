@@ -12,49 +12,158 @@ const DEFAULT_SETTINGS: Settings = {
   preserveBrand: true,
 }
 
+// ── IndexedDB for large blobs (resultDataUrl) ─────────────────────────────────
+// chrome.storage.local 总量 10MB，base64 图片几百 KB，很快就满
+// 元数据存 storage.local，图片 dataURL 存 IndexedDB（无大小限制）
+
+const IDB_NAME = 'image-translator'
+const IDB_STORE = 'job-results'
+const IDB_VERSION = 1
+
+function openIdb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION)
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbSet(key: string, value: string): Promise<void> {
+  const db = await openIdb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    tx.objectStore(IDB_STORE).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+async function idbGet(key: string): Promise<string | undefined> {
+  const db = await openIdb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly')
+    const req = tx.objectStore(IDB_STORE).get(key)
+    req.onsuccess = () => resolve(req.result as string | undefined)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbGetMany(keys: string[]): Promise<Record<string, string>> {
+  if (!keys.length) return {}
+  const db = await openIdb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly')
+    const store = tx.objectStore(IDB_STORE)
+    const result: Record<string, string> = {}
+    let pending = keys.length
+    for (const k of keys) {
+      const req = store.get(k)
+      req.onsuccess = () => {
+        if (req.result) result[k] = req.result as string
+        if (--pending === 0) resolve(result)
+      }
+      req.onerror = () => { if (--pending === 0) resolve(result) }
+    }
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+async function idbDeleteMany(keys: string[]): Promise<void> {
+  if (!keys.length) return
+  const db = await openIdb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    for (const k of keys) tx.objectStore(IDB_STORE).delete(k)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 // ── storage key helpers ───────────────────────────────────────────────────────
 
 const JOBS_META_KEY = 'jobs_meta'       // string[] — ordered job id list
-const jobDataKey = (id: string) => `job_${id}` // per-job storage key
+const MAX_JOBS = 50                     // 最多保留 50 条，超出自动删除最旧的
+const jobDataKey = (id: string) => `job_${id}`
+const jobImgKey = (id: string) => `result_${id}`
 
-/** 从 storage 加载全部 jobs（按 jobs_meta 顺序）*/
+/** 从 storage + IDB 加载全部 jobs */
 async function loadJobsFromStorage(): Promise<TranslationJob[]> {
   const meta = await chrome.storage.local.get([JOBS_META_KEY])
   const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
   if (!ids.length) return []
-  const keys = ids.map(jobDataKey)
-  const data = await chrome.storage.local.get(keys)
+
+  // 批量读 meta
+  const metaKeys = ids.map(jobDataKey)
+  const metaData = await chrome.storage.local.get(metaKeys)
+
+  // 批量读图片（IDB）
+  const imgKeys = ids.map(jobImgKey)
+  const imgData = await idbGetMany(imgKeys).catch(() => ({} as Record<string, string>))
+
   return ids
-    .map((id) => data[jobDataKey(id)] as TranslationJob | undefined)
+    .map((id) => {
+      const job = metaData[jobDataKey(id)] as TranslationJob | undefined
+      if (!job) return undefined
+      const img = imgData[jobImgKey(id)]
+      return img ? { ...job, resultDataUrl: img } : job
+    })
     .filter((j): j is TranslationJob => !!j)
 }
 
-/** 持久化单条 job（追加到 meta 列表头部） */
+/** 持久化单条 job（仅元数据到 storage，图片到 IDB） */
 async function persistJob(job: TranslationJob): Promise<void> {
-  const meta = await chrome.storage.local.get([JOBS_META_KEY])
-  const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
-  const nextIds = [job.id, ...ids.filter((id) => id !== job.id)]
+  // 元数据不含 resultDataUrl（省空间）
+  const { resultDataUrl, ...meta } = job
+
+  const storageMeta = await chrome.storage.local.get([JOBS_META_KEY])
+  const ids: string[] = Array.isArray(storageMeta[JOBS_META_KEY]) ? storageMeta[JOBS_META_KEY] : []
+  let nextIds = [job.id, ...ids.filter((id) => id !== job.id)]
+
+  // 超出上限时删除最旧的
+  const toEvict = nextIds.slice(MAX_JOBS)
+  if (toEvict.length) {
+    nextIds = nextIds.slice(0, MAX_JOBS)
+    await chrome.storage.local.remove(toEvict.map(jobDataKey))
+    await idbDeleteMany(toEvict.map(jobImgKey)).catch(() => {})
+  }
+
   await chrome.storage.local.set({
     [JOBS_META_KEY]: nextIds,
-    [jobDataKey(job.id)]: job,
+    [jobDataKey(job.id)]: meta,
   })
+
+  if (resultDataUrl) {
+    await idbSet(jobImgKey(job.id), resultDataUrl).catch(() => {})
+  }
 }
 
-/** 更新单条 job */
+/** 更新单条 job：元数据到 storage.local，resultDataUrl 到 IDB */
 async function updateJobInStorage(id: string, patch: Partial<TranslationJob>): Promise<void> {
-  const key = jobDataKey(id)
-  const data = await chrome.storage.local.get([key])
-  const existing = data[key] as TranslationJob | undefined
-  if (!existing) return
-  await chrome.storage.local.set({ [key]: { ...existing, ...patch } })
+  const { resultDataUrl, ...metaPatch } = patch
+
+  // 更新元数据
+  if (Object.keys(metaPatch).length) {
+    const key = jobDataKey(id)
+    const data = await chrome.storage.local.get([key])
+    const existing = data[key] as TranslationJob | undefined
+    if (existing) {
+      await chrome.storage.local.set({ [key]: { ...existing, ...metaPatch } })
+    }
+  }
+
+  // 更新图片
+  if (resultDataUrl) {
+    await idbSet(jobImgKey(id), resultDataUrl).catch(() => {})
+  }
 }
 
 /** 清空所有 jobs */
 async function clearJobsInStorage(): Promise<void> {
   const meta = await chrome.storage.local.get([JOBS_META_KEY])
   const ids: string[] = Array.isArray(meta[JOBS_META_KEY]) ? meta[JOBS_META_KEY] : []
-  const keysToRemove = [JOBS_META_KEY, ...ids.map(jobDataKey)]
-  await chrome.storage.local.remove(keysToRemove)
+  await chrome.storage.local.remove([JOBS_META_KEY, ...ids.map(jobDataKey)])
+  await idbDeleteMany(ids.map(jobImgKey)).catch(() => {})
 }
 
 // ── AppState ──────────────────────────────────────────────────────────────────
@@ -120,7 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (Array.isArray(data.pinnedImages)) {
       set({ pinnedImages: data.pinnedImages })
     }
-    // 加载持久化的 jobs
+    // 加载持久化的 jobs（含 IDB 图片）
     try {
       const jobs = await loadJobsFromStorage()
       if (jobs.length) set({ jobs })
