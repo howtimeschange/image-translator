@@ -1,9 +1,21 @@
 # Image Translator — Nano Banana
 
+**[访问抓虾 Harness 官网 · 查看介绍与下载](https://harness.crawshrimp.com/)**
+
 > **网页图片 AI 翻译 Chrome 插件**
 > 基于 Nano Banana（Gemini 图像生成）模型，保持原图排版 / 主体 / 风格不变，只把文字翻译成目标语言。
 
 ---
+
+## 合作交流与赞助
+
+欢迎联系作者，交流商品图片翻译、多语言素材本地化与批量处理，探讨跨境电商应用和项目合作，或赞助支持插件持续维护。
+
+使用微信扫描下方二维码添加作者，备注「Image Translator + 合作 / 交流 / 赞助」。
+
+<a href="https://crawshrimp.com/wechat-qr.jpg">
+  <img src="https://crawshrimp.com/wechat-qr.jpg" alt="Image Translator作者的微信联系二维码，用于合作交流与赞助联系" width="280" />
+</a>
 
 ## 功能概览
 
